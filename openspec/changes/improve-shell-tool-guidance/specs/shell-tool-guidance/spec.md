@@ -28,3 +28,28 @@ The system MUST retain the existing preset-based full tool exposure and MUST NOT
 #### Scenario: Full preset task begins
 - **WHEN** a task starts with the full tool preset
 - **THEN** the existing complete tool list is exposed using the current registration and ordering behavior
+
+### Requirement: Task simplicity does not bypass required tools
+The system prompt SHALL NOT use a broad “complete simple tasks directly” instruction that can be interpreted as permission to answer dynamic facts without tools.
+
+#### Scenario: Simple request depends on dynamic state
+- **WHEN** a short or single-step request depends on current device or external state
+- **THEN** the agent still uses the appropriate tool instead of treating simplicity as evidence that direct recall is reliable
+
+### Requirement: Current time must be queried and not guessed
+The `shell_execute` model-facing description SHALL direct current date, time, weekday, and timezone questions to the existing `date` command without adding a dedicated device-time tool, and the sandbox SHALL run with the Android device's current UTC offset.
+
+#### Scenario: User asks for current time information
+- **WHEN** the user asks for the current date, time, weekday, timezone, UTC offset, or timestamp
+- **THEN** the model is instructed to call `shell_execute` with `date` and use its result rather than model knowledge, history, or estimation
+
+#### Scenario: Shell reports local device time
+- **WHEN** `date` runs in the PRoot sandbox
+- **THEN** its timezone offset matches the Android device's current timezone offset
+
+### Requirement: Shell description remains concise
+The `shell_execute` model-facing description SHALL summarize its environment, selection boundaries, Android command discovery, and result semantics without enumerating URI or subcommand examples.
+
+#### Scenario: Model receives shell_execute
+- **WHEN** the tool schema is sent to the model
+- **THEN** its description exposes the essential contract in a compact form and directs detailed Android command discovery to `android-help`
