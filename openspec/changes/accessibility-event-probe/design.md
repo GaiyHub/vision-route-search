@@ -1,6 +1,6 @@
 ## Context
 
-vision-route-search 系统计划用 AccessibilityService 采集外部 App 的操作轨迹。AOSP 源码已确认 packageNames=null 时可接收所有 App 事件、takeScreenshot() 可用（API 31+）、getSource() 可提取元素元数据。但不同 App（尤其 Flutter/WebView）无障碍树质量差异大。本设计定义一个场景化录制工具，让用户以"分析场景"为单位录制操作并回看轨迹，实测验证采集能力。
+doupao 系统计划用 AccessibilityService 采集外部 App 的操作轨迹。AOSP 源码已确认 packageNames=null 时可接收所有 App 事件、takeScreenshot() 可用（API 31+）、getSource() 可提取元素元数据。但不同 App（尤其 Flutter/WebView）无障碍树质量差异大。本设计定义一个场景化录制工具，让用户以"分析场景"为单位录制操作并回看轨迹，实测验证采集能力。
 
 ## Goals / Non-Goals
 
@@ -43,7 +43,7 @@ flagReportViewIds 是拿到资源 ID 的前提；不开启会误判元素信息�
 每次录制生成一个目录，内含事件日志（JSONL）和截图文件（PNG）。目录按场景组织：
 
 ```
-<app外部存储>/vision-route-search/
+<app外部存储>/doupao/
   └── scenarios/
       └── <scenario_id>/
           ├── meta.json          # 场景名称+描述

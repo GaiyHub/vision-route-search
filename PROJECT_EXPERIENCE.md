@@ -28,7 +28,7 @@ AgentLoop、工具执行、任务状态和用户交互均运行在手机 App 内
 
 ### 招聘系统短版
 
-基于 Kotlin、React Native 和 TypeScript 开发无需 ADB 的端侧 Android 通用 AI Agent。采用 `AgentLoop + Tools` 架构，以手机自动化为核心，支持无障碍与视觉双通道、WebView 浏览器、BusyBox/PRoot Shell 和跨应用操作。重点实现工具后验验证、循环熔断、风险确认、Skills 渐进式披露、任务续跑和分层上下文缓存，解决复杂手机 UI 中的视觉成本、异步滞后、重复操作及模型早停问题。
+基于 Kotlin、React Native 和 TypeScript 开发无需 ADB 的端侧 Android 通用 AI Agent。采用 `AgentLoop + Tools` 架构，以手机自动化为核心，支持无障碍与视觉双通道、WebView 浏览器、BusyBox Shell 和跨应用操作。重点实现工具后验验证、循环熔断、风险确认、Skills 渐进式披露、任务续跑和分层上下文缓存，解决复杂手机 UI 中的视觉成本、异步滞后、重复操作及模型早停问题。
 
 ## 项目背景与核心挑战
 
@@ -71,7 +71,7 @@ flowchart LR
     TOOLS --> APPS["list_apps"]
     TOOLS --> PHONE["UI Observe / Act"]
     TOOLS --> WEB["WebView Browser"]
-    TOOLS --> SHELL["BusyBox / Alpine+PRoot"]
+    TOOLS --> SHELL["BusyBox Shell"]
     TOOLS --> HUMAN["confirm_action / ask_user"]
 
     LOOP --> SKILLS["Skills / Experiences"]
@@ -124,9 +124,8 @@ flowchart LR
 Shell 不是用来模拟完整的 `adb shell`，而是在应用权限边界内提供类似 Bash 的确定性执行环境：
 
 - BusyBox 作为默认轻量执行器。
-- Alpine+PRoot 作为复杂命令的兼容回退。
 - Android 系统能力通过受控宿主命令或 Intent 暴露。
-- 两个执行器共享工作区，Agent 无需感知底层切换。
+- Shell 使用应用私有工作区，对 Agent 保持稳定的工具协议。
 
 浏览器使用独立 WebView 会话管理页面、Cookie、DOM ref、标签页和截图，并以单一 `browser_use` 工具接入。两者能够直接解决的任务无需再绕行手机 UI。
 
@@ -200,7 +199,7 @@ type ModelContent =
 
 - 负责端侧 AgentLoop、工具注册体系、Provider 适配和上下文生命周期设计。
 - 负责 Android 无障碍树序列化、截图、节点/坐标操作及页面变化验证。
-- 负责 WebView 浏览器、BusyBox/PRoot Shell 和 Android 宿主命令的工具化接入。
+- 负责 WebView 浏览器、BusyBox Shell 和 Android 宿主命令的工具化接入。
 - 负责工具熔断、高风险确认、用户澄清、完成复核与续跑交互。
 - 负责 Skills 经验库与渐进式披露机制设计。
 - 负责基于真实任务轨迹定位失败原因，并将通用修复下沉到工具或运行时。
@@ -282,15 +281,15 @@ type ModelContent =
 
 项目面向普通用户直接安装使用。ADB、Root 和 Shizuku 会增加外部依赖、授权成本和安全风险，因此运行时只使用普通应用权限、无障碍、MediaProjection、受控 Intent 和应用内 Shell。
 
-### 为什么保留 Alpine+PRoot？
+### 为什么选择 BusyBox？
 
-BusyBox 足以覆盖常用命令，但复杂脚本可能依赖完整用户态、动态库或包管理。保持 `shell_execute` 接口不变，使用 BusyBox 默认执行并保留 PRoot 回退，可以渐进迁移并控制兼容风险。
+BusyBox 以较小的 APK 和运行时开销覆盖常用 Shell、文本处理、文件与网络命令。Android 系统能力另由受控宿主命令提供，使 `shell_execute` 保持稳定，同时避免完整 Linux rootfs 的解压成本、ABI 适配和额外故障点。
 
 ## 项目边界
 
 - 不同 App 的无障碍质量差异明显，视觉定位仍受模型能力影响。
 - 页面变化验证只能证明动作产生反馈，不能代替最终业务结果验证。
-- BusyBox 不是完整 Linux 发行版，复杂命令仍可能需要 Alpine+PRoot。
+- BusyBox 不是完整 Linux 发行版，未内置的动态库、包管理器和复杂依赖无法直接使用。
 - WebView 登录受站点策略影响，不能完全替代系统浏览器。
 - OEM 后台策略无法彻底规避，只能通过前台服务、Alarm、权限引导和真机回归持续改善。
 - 自动化成功率受到模型、目标 App、网络和 ROM 共同影响，不宣称百分百完成。
@@ -305,4 +304,4 @@ BusyBox 足以覆盖常用命令，但复杂脚本可能依赖完整用户态、
 
 ## 关键词
 
-`Android AI Agent`、`端侧 Agent`、`LLM Agent`、`AgentLoop`、`Tool Calling`、`React Native`、`TypeScript`、`Kotlin`、`AccessibilityService`、`MediaProjection`、`WebView`、`BusyBox`、`PRoot`、`Alpine Linux`、`Gemma`、`Prefix Cache`、`Skills`、`渐进式披露`、`多模态`、`循环熔断`、`风险确认`、`任务续跑`、`真机调试`
+`Android AI Agent`、`端侧 Agent`、`LLM Agent`、`AgentLoop`、`Tool Calling`、`React Native`、`TypeScript`、`Kotlin`、`AccessibilityService`、`MediaProjection`、`WebView`、`BusyBox`、`Gemma`、`Prefix Cache`、`Skills`、`渐进式披露`、`多模态`、`循环熔断`、`风险确认`、`任务续跑`、`真机调试`

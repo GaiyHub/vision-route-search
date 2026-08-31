@@ -1,6 +1,6 @@
 ## Why
 
-vision-route-search 系统计划用 AccessibilityService 采集外部 App 的操作轨迹。在投入完整架构前，需要一个场景化录制工具来实测验证：AccessibilityService 能否从外部 App 采到有用的操作轨迹（事件覆盖率 + 元素信息丰富度），同时验证 takeScreenshot() 的可用性。本工具以"分析场景"为组织单位，支持用户创建场景、通过悬浮窗控制录制、录制后回看轨迹，为后续架构决策提供实测依据。
+doupao 系统计划用 AccessibilityService 采集外部 App 的操作轨迹。在投入完整架构前，需要一个场景化录制工具来实测验证：AccessibilityService 能否从外部 App 采到有用的操作轨迹（事件覆盖率 + 元素信息丰富度），同时验证 takeScreenshot() 的可用性。本工具以"分析场景"为组织单位，支持用户创建场景、通过悬浮窗控制录制、录制后回看轨迹，为后续架构决策提供实测依据。
 
 ## What Changes
 

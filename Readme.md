@@ -4,7 +4,7 @@
 
 **运行在 Android 手机上的通用 AI Agent**
 
-既可以直接回答问题，也可以按需调用手机 UI、内置浏览器、隔离 Shell 与 Android 系统能力完成真实任务。
+既能连续对话和回答问题，也能按需使用手机 UI、联网搜索、内置浏览器、隔离 Shell 与 Android 系统能力完成真实任务。
 
 ![Android](https://img.shields.io/badge/Android-API%2026%2B-3DDC84)
 ![React Native](https://img.shields.io/badge/React%20Native-0.81-61DAFB)
@@ -14,242 +14,160 @@
 
 </div>
 
-## 项目简介
+## 项目定位
 
-豆泡不是固定流程的自动化脚本，也不依赖单独的“问答/操作”意图分类器。它把 Android UI、网页、Shell、任务管理和用户卡控封装为标准工具，由模型根据当前用户目标选择最短、可靠且安全的路径：
+移动端大量能力封闭在 App 内，很多事项无法通过开放 API 完成；复杂功能又往往入口深、步骤多、反馈异步，对中老年用户尤其不友好。豆泡希望把自然语言变成统一入口，让用户不必理解每个 App 的菜单结构：
 
-- 能凭已有知识可靠回答时，直接返回文字。
-- 需要实时信息、计算、网页、文件或设备状态时，调用对应工具。
-- 下一步确实依赖手机界面时，主动读取结构或截图。
-- 执行手机代操作后，根据真实返回值和后续状态验证结果。
-- 支付、发送、删除、账户修改等高风险动作，在最终提交前强制确认。
+- 普通知识、分析与解释直接对话完成；
+- 需要最新信息时调用联网搜索或内置浏览器；
+- 需要计算、文本处理、文件操作或确定性系统能力时调用 Shell；
+- 必须进入 App 时，通过 Android UI 工具观察并操作真实界面；
+- 涉及支付、发送、删除或账户变更时，在执行前暂停并请求用户授权。
 
-豆泡运行时不依赖 ADB。ADB 仅用于开发阶段的构建、装机、日志和真机回归。
+豆泡不是固定流程脚本，也不先用分类器把请求切成“问答”或“操作”。所有能力以标准工具接入同一个 AgentLoop，由模型结合目标、证据、成本和风险选择路径。
+
+## 产品定位与迭代时间线
+
+> 时间线同时记录产品重心变化及支撑该变化的关键工程能力；日期以仓库提交和现有变更记录为准。
+
+| 时间 | 产品定位变化 | 主要迭代与优化 |
+| --- | --- | --- |
+| 2026-08-13 | **端侧手机助手与屏幕看护**：以语音或文字控制手机，并支持周期性检查屏幕条件。 | 建立 React Native 应用、端侧模型、无障碍控制、悬浮窗、任务历史和 `/watch` 定时看护链路。 |
+| 2026-08-15 | **聚焦手机代操作**：从“定时观察”扩展到目标驱动的连续执行，优先解决复杂 App 路径的代操作问题。 | 确立单主 Agent 的 ReAct 循环；引入执行中打断、敏感操作确认、模型配置与连续观察执行。产品更名为“豆泡”。 |
+| 2026-08-16 | **形成可独立演进的 Agent 内核**：不再把能力绑定在单一手机操作流程中。 | 将 AgentLoop、Provider 和工具协议内聚到工程；建立结构化消息、工具调用/结果配对、Prompt Cache 与 Token 用量统计；增加任务完成确认。 |
+| 2026-08-17～08-19 | **从一次性指令走向可持续交互**：任务执行过程中允许纠正、澄清和继续。 | 完善前后台悬浮交互、完成/继续决策、执行状态恢复和后台保活；关键等待逐步迁移到 Android 原生 Alarm，缓解系统冻结 JS 定时器的问题。 |
+| 2026-08-22 | **强化真实 App 操作可靠性**：重点解决移动端坐标易失效、列表节点复用和动作成功不等于页面推进的问题。 | 建立短期 `ref` 与 `observationId` 证据协议；统一语义定位和归一化视觉坐标；区分动作已派发与结果已验证，减少重复点击和错误路径试探。 |
+| 2026-08-24 | **升级为通用移动智能体**：除手机 UI 外，开始覆盖问答、网页、数据处理和 Android 确定性能力。 | 引入内置浏览器、隔离 Shell、Android 宿主命令、Todo、Skills、用户澄清和工具配置；增加大工具结果落盘与分页读取，形成可扩展工具体系。 |
+| 2026-08-26 | **面向长任务与连续对话稳定运行**：重点从“能调用工具”转向“能长期保持正确上下文”。 | 建立 Provider 无关的结构化历史、分层提示词与 Prefix Cache；完善上下文压缩、浏览器原生观察、任务完成后的三路选择和工具循环熔断。 |
+| 2026-08-28 | **面向成本、安全与可观测性优化**：让移动 Agent 的执行过程可控制、可复盘。 | 增加端侧 OCR 与截图标记；统一工具输出 Schema；模型评估单次工具风险，运行时冻结高风险调用；记录符合 OpenTelemetry 数据模型的本地 JSONL Trace；按模型上下文窗口管理预算。 |
+| 2026-08-30～当前 | **完善端侧闭环与弱环境适应能力**：降低权限中断、复杂页面和异步反馈对任务成功率的影响。 | 增加联网搜索、截图与定位权限的可恢复授权；为无障碍树设置耗时、节点数和深度预算，截图与结构采集故障隔离；Shell 收敛为 BusyBox；取消单个 UI 动作后的固定等待，仅在同轮连续变更操作之间短暂稳定，其他异步结果由显式 Wait/轮询工具处理。 |
+
+当前产品定位是：**端侧优先、支持连续对话、能够在问答与真实设备操作之间自主选择路径的通用移动智能体**。屏幕看护作为只读定时任务继续保留，但不再是产品的唯一中心。
 
 ## 核心能力
 
 ### 通用 AgentLoop
 
-- 在直接回答、工具调用、用户澄清、任务清单和任务终止之间统一决策。
-- 不在主循环中默认注入截图或无障碍树，观察成本由模型按需承担。
-- 最大步骤支持 1–200，默认 50；任务完成确认为“继续”时至少追加 10 步。
-- 默认使用 Token 感知的上下文管理：固定规则卸载旧工具结果，达到单一安全阈值后用 LLM 摘要较早历史。
-- 保留最近完整工具轮次和最新 UI 观察；旧滑动窗口仅作为可配置回退路径，默认窗口为 20 轮。
-- 支持任务超时、模型请求超时、短暂错误重试、主动停止和压缩状态展示。
-- 系统提示词保留最近 5 个版本，可按版本 ID 回滚。
+- 以 ReAct AgentLoop 统一直接回答、工具调用、用户交互和任务终止；主循环不预设固定业务工作流。
+- 内部使用 Provider 无关的结构化消息，适配 OpenAI-compatible、Anthropic、OpenRouter 与端侧 Gemma。
+- 支持连续对话、中途用户消息注入、任务超时、模型请求超时、短暂错误重试、主动停止和完成后继续。
+- Todo 为多阶段任务提供持续可见的目标和完成条件；简单任务不强制规划。
+- 主循环不自动读取屏幕，所有环境感知均由模型按需调用工具获得。
 
-### Android UI 操作
+### 移动端 GUI
 
-- `inspect_ui`：读取当前无障碍元素树。
-- `screenshot`：一次返回截图和同一时刻的无障碍树。
-- 点击、长按、文本输入、清空、回车、精细滑动、普通滚动、分页滚动、系统导航和应用启动。
-- `find_node` 返回 `nodeId / text / bounds / center / matchCount`，用于处理列表复用相同资源 ID 的情况。
-- `tap` 优先执行节点点击；只有节点动作明确被拒绝时才回退一次坐标点击，避免重复提交。
-- 点击后在本地轮询无障碍树、前台应用，并在可用时结合截图像素差异判断页面是否真的变化，不额外调用视觉模型。
-- 强制视觉模式会关闭独立结构查询工具，但截图仍同时携带无障碍树。
+- `ui_inspect` 提供有界的无障碍结构；`ui_screenshot` 提供图像，并可携带近似同帧结构与端侧 OCR 结果。
+- 无障碍节点与 OCR 目标统一为短期 `ref`；纯视觉目标使用携带 `observationId` 的归一化坐标，避免复用过期位置。
+- 支持点击、长按、文本输入、滚动、滑动、应用启动、系统导航及节点状态读取等操作。
+- 动作返回值只表达派发结果，不把系统接受手势等同于业务完成；模型根据后续证据决定是否继续观察或验证。
+- 复杂无障碍树受到耗时、遍历节点数、深度和结果数预算约束；预算耗尽时返回部分结果和截断原因，避免阻塞整个工具链。
+- 图片与结构树并行采集、故障隔离；结构树超时不会使已获得的截图失效。
 
-### 内置浏览器
+### 异步等待与证据管理
 
-- 基于 React Native WebView 的独立 `browser_use` 工具域，与手机 UI 主链路解耦。
-- 支持网页导航、正文提取、DOM 骨架、语义查找、稳定 ref、点击、输入、滚动和长列表采集。
-- 支持页面稳定等待、网页截图、受限 JavaScript、会话内资源抓取、Cookie、视口和 User-Agent。
-- 最多管理 3 个标签页。
-- 默认以吸附屏幕右侧的小窗展示，用户可以手动切换全屏。
-- 仅允许公开 HTTP/HTTPS 地址，拒绝回环和私网地址；网页内容统一标记为不可信数据。
+- 提供通用 `wait`、`ui_wait_for_node`、`ui_wait_for_change` 和浏览器稳定等待，由模型在下一步确实依赖异步结果时主动调用。
+- 部分专用工具在内部完成必要的状态轮询或权限恢复，减少模型重复发起相同动作。
+- 单个 UI 动作完成后不再追加固定等待；仅在模型同一轮连续调用多个界面变更工具时，在工具之间执行短暂 settle，防止后续动作抢跑。
+- 截图只用于一次相关视觉推理，长期有效的结论转为 `visual_memory`；界面变化后旧截图、ref 与坐标失效，降低状态漂移和多模态 Token 消耗。
 
-### 隔离 Shell 与 Android 宿主命令
+### 联网搜索与内置浏览器
 
-- `shell_execute` 的默认执行器是 APK 内置 BusyBox，适合计算、文本处理、数据转换、文件操作、网络请求和运行时诊断。
-- 保留 Alpine Linux + PRoot 作为兼容回退，可通过运行时标记切换，便于验证 BusyBox 迁移后的兼容性。
-- 两种执行器共享应用工作区，对 Agent 暴露的工具名称和参数保持不变。
-- Android 框架能力通过受控宿主命令开放：
-  - `android-device`：设备、系统、电池、存储信息。
-  - `android-clipboard`：读取、写入或清空剪贴板。
-  - `android-open`：打开公开 URL 或 `sms:` 等系统 URI。
-  - `android-alarm`：打开闹钟、创建闹钟或计时器。
-  - `android-notification`：发送或清理豆泡通知。
-  - `android-speak`：调用系统 TTS。
-- 沙箱不是 Android 系统 Shell，不提供 `adb`、`am`、`pm`、`settings`、`getprop` 或 Shizuku 特权。
+- `web_search` 用于获取时效信息和近期数据，支持搜索类别、时间范围、结果数与来源域名约束。
+- 内置浏览器使用独立 WebView 会话，提供网页导航、读取、语义查找、点击、输入、滚动、稳定等待及标签页管理。
+- 浏览器 DOM 状态与手机前台 UI 状态相互独立，网页变化不会触发无意义的手机无障碍观察。
+- 仅允许公开 HTTP/HTTPS 地址，拒绝回环和私网访问；网页内容按不可信外部数据处理。
 
-### 工具治理
+### 隔离 Shell 与 Android 宿主能力
 
-- 普通工具可以独立启用或禁用，并可修改界面显示名称、模型可见描述等元信息；规范工具名和参数协议保持稳定。
-- 内部协议工具可以绕过用户预设恒定注册。`file_read` 不出现在工具设置中，不允许禁用或改写元信息。
-- 参与循环检测的普通工具支持独立的预警和阻断阈值；安全卡控和内部协议工具不向用户开放这项配置。
-- ToolLoopCircuitBreaker 会规范化工具别名、参数和坐标，识别语义等价的重复动作。
-- 结合工具结果、页面变化信号和任务状态判断是否取得进展；观察类工具只预警，不强制阻断。
-- 工具结果使用统一成功/失败结构，并按工具类型应用独立结果预算。
+- `shell_execute` 使用 APK 内置 BusyBox，在应用私有工作区执行计算、文本处理、数据转换、文件操作、网络请求和运行时诊断。
+- Android 框架能力通过受控宿主命令开放，覆盖设备信息、剪贴板、通信编辑器、地图、定位、系统设置、日历、分享、闹钟、通知与系统 TTS。
+- Shell 不是 Android 系统终端，不提供 ADB、包管理器或系统设置写权限；高风险调用继续经过统一授权边界。
 
-### 大结果落盘与按需读取
+### 工具治理与 Human-in-the-Loop
 
-- 工具结果在超过各自模型可见预算时，会先将完整文本写入应用私有目录，再把历史中的结果替换为头尾预览、原始大小和逻辑路径。
-- 没有独立预算的大型 UI 观察使用 50K 字符兜底阈值；敏感结果不落盘，写入失败则回退为原有内联结果。
-- 模型可以用内置 `file_read(path, offset, limit)` 分页读取完整内容，单次最多 8K 字符；该工具只接受 `/tool-results/<会话>/<文件>` 引用，不是通用文件系统读取器。
-- 结果以每次工具调用一个文件的粒度保存，最多保留最近 20 个会话目录或 7 天。
-- 页面校验和循环熔断仍使用完整工具结果，落盘引用只在进入模型历史前生成。
+- 工具使用统一 Schema 和成功/失败结果协议；错误代码、可重试性与提示会作为工具结果返回模型。
+- 普通工具可独立启停并配置模型可见元信息；内部协议与安全工具保持强制注册。
+- `ask_user` 在缺少必要信息时暂停任务；`request_user_action` 处理必须由用户手动完成的步骤。
+- 模型为可能改变外部状态的每次调用声明风险；运行时冻结高风险调用，获得用户授权后才执行原调用。
+- ToolLoopCircuitBreaker 对工具别名、参数和相近坐标进行规范化，识别无进展的等价操作；先预警、后阻断，连续阻断达到阈值时安全终止。
 
-### 安全与用户卡控
+### Skills 渐进式经验
 
-- `confirm_action`：支付、购买、发送、删除、重置和账户/隐私修改等高风险动作的强制授权入口。
-- `ask_user`：仅在缺少会实质影响结果、路径或风险的必要信息时暂停任务。
-- 一次确认只授权描述中的具体动作、对象、金额、内容和范围。
-- 任务完成或步数耗尽后提供“完成 / 继续 / 补充信息”三个选项。
-- 豆泡在前台时使用对话页内嵌卡片；后台代操作时使用悬浮窗。“完成”和“继续”留在当前 App，“补充信息”才调回豆泡输入。
-- Android 原生 Alarm 驱动关键等待，降低 MIUI/HyperOS 后台冻结 JS 定时器带来的影响。
+- 用户可以把特定场景的操作经验保存为 Skill，用于缩短执行路径、降低试错与提高稳定性。
+- 每轮只注入名称和描述目录；场景匹配时模型再调用 `read_skill` 加载正文，避免所有经验长期占用上下文。
+- Skill 存储与 AgentLoop 解耦，运行时只依赖目录和按名称读取接口。
 
-### 会话、经验与可观测性
+### 上下文工程
 
-- 会话历史、收藏指令、最近指令、Token 用量和模型缓存命中统计。
-- 云端模型选择支持关键词 Suggest：每次 App 进程启动最多刷新一次 `models.dev` 目录和当前 Provider 的 `/models` 结果，本地缓存供离线使用，同时允许直接输入任意模型 ID。
-- 经验支持新增、编辑、禁用和删除；删除前统一二次确认。
-- 经验采用渐进加载：任务提示只携带目录，命中场景后通过 `read_skill` 读取正文。
-- 思考与执行合并为一个折叠组件，使用白色/浅灰背景区分，两类出入参默认只显示一行。
-- 工具调用、熔断、完成状态和错误会写入任务日志，便于复盘真实 Agent 轨迹。
+- 提示词按稳定性组织：稳定规则、任务级上下文、结构化历史和实时运行状态分层注入。
+- 稳定前缀通过 Provider 的 Prompt/Prefix Cache 复用，并记录缓存命中 Token。
+- `ContextCompressionManager` 统一负责大结果卸载、Token 估算和阈值摘要；保留最近完整轮次及最新 UI 证据。
+- 超预算的工具结果写入应用私有目录，历史只保留预览、大小和逻辑路径；模型可通过受限 `file_read` 分页读取。
+- 压缩只改变发送给模型的有效上下文，完整任务事件仍作为日志事实源保留。
+
+### 可观测性
+
+- 记录模型请求、工具执行、熔断、授权、完成状态、Token 使用、缓存命中和阶段耗时。
+- 本地 Trace 采用 OpenTelemetry Span 数据模型与 `gen_ai.*` 语义字段，以 JSONL 保存，便于分析任务耗时和失败路径。
+- 任务日志与 Trace 共用同一执行事实，避免 UI 日志和诊断数据出现两套口径。
 
 ## 架构总览
 
 ```mermaid
 flowchart TD
-    U["用户：文字 / 语音"] --> CHAT["React Native 对话界面"]
-    CHAT --> BRIDGE["agentBridge\n权限、会话、前后台交互"]
-    BRIDGE --> LOOP["AgentLoop\n决策、历史、终止状态"]
+    USER["用户：文字 / 语音"] --> CHAT["React Native 对话与任务界面"]
+    CHAT --> BRIDGE["Agent Bridge\n会话、权限、前后台交互"]
+    BRIDGE --> LOOP["ReAct AgentLoop\n决策、历史、终止状态"]
 
-    LOOP --> PROVIDERS["Provider 适配层"]
-    PROVIDERS --> CLOUD["OpenAI / Anthropic / OpenRouter"]
-    PROVIDERS --> LOCAL["ExecuTorch / Gemma"]
+    LOOP --> PROVIDER["Provider 适配层"]
+    PROVIDER --> CLOUD["OpenAI-compatible / Anthropic / OpenRouter"]
+    PROVIDER --> LOCAL["ExecuTorch / Gemma"]
 
     LOOP --> TOOLKIT["AgentToolkit + ToolRegistry"]
-    LOOP --> CONTEXT["ContextCompressionManager\n固定卸载 + 阈值摘要"]
-    TOOLKIT --> UI["Android UI Tools"]
-    TOOLKIT --> BROWSER["browser_use"]
-    TOOLKIT --> SHELL["shell_execute"]
-    TOOLKIT --> FILEREAD["file_read"]
-    TOOLKIT --> STATE["Todo / Skill / Note"]
-    TOOLKIT --> GATES["confirm_action / ask_user"]
-
-    UI --> A11Y["AccessibilityService + MediaProjection"]
-    BROWSER --> WEBVIEW["内置 WebView 会话"]
-    SHELL --> BUSYBOX["BusyBox 默认执行器"]
-    SHELL --> ALPINE["Alpine + PRoot 兼容回退"]
-    SHELL --> HOST["Android Host Commands"]
-    FILEREAD --> ARTIFACTS["应用私有工具结果文件"]
-
+    LOOP --> CONTEXT["ContextCompressionManager"]
     LOOP --> BREAKER["ToolLoopCircuitBreaker"]
-    LOOP --> HISTORY["Provider 无关的结构化历史"]
+    LOOP --> TRACE["Task Log + OTel JSONL Trace"]
+
+    TOOLKIT --> UI["Android UI Tools"]
+    TOOLKIT --> SEARCH["Web Search"]
+    TOOLKIT --> BROWSER["WebView Browser"]
+    TOOLKIT --> SHELL["BusyBox Shell"]
+    TOOLKIT --> STATE["Todo / Skills / File Read"]
+    TOOLKIT --> GATE["Ask User / User Action / Risk Gate"]
+
+    UI --> NATIVE["Kotlin Native Layer"]
+    NATIVE --> A11Y["AccessibilityService"]
+    NATIVE --> VISION["MediaProjection + OCR"]
+    NATIVE --> ANDROID["Gesture / Alarm / Host Commands"]
 ```
 
-## 关键设计
-
-### 1. 统一决策，不做固定意图分流
-
-系统把豆泡定义为通用移动端助手。模型根据目标和当前事实自主选择直接回答、调用工具或请求必要信息。需要硬约束的内容，例如高风险授权和工具权限，由运行时协议保证，而不是依赖容易误判的意图标签。
-
-### 2. 观察也是工具
-
-主循环不会默认读取屏幕。只有下一步依赖手机 UI 时，模型才调用 `inspect_ui` 或 `screenshot`。截图与当前 UI 状态绑定：只读定位可以继续使用同一证据；点击、滚动、输入、等待等可能改变页面的动作会使旧图失效。
-
-### 3. Provider 无关的标准历史
-
-内部历史使用统一结构：
-
-```ts
-type ModelContent =
-  | { type: 'text'; text: string }
-  | { type: 'tool_call'; id: string; name: string; arguments: object }
-  | { type: 'tool_result'; callId: string; result: ToolResult };
-```
-
-Provider 层分别转换为：
-
-- OpenAI-compatible：`assistant.tool_calls` + `role=tool`
-- Anthropic：`tool_use` + `tool_result`
-- 本地文本模型：紧凑的兼容文本协议
-
-因此 AgentLoop、历史存储、敏感结果脱敏和工具错误处理不依赖单一模型 API。
-
-### 4. 分层提示词与 Prefix Cache
-
-每次模型请求按稳定性分层组装：
+## 代码分层
 
 ```text
-system
-  固定 AGENT_SYSTEM_PROMPT
-
-首条 user <runtime_context>
-  当前任务 + 运行上下文 + 用户附加说明 + 可用经验目录
-  + 可选 <context_summary>
-
-结构化历史
-  assistant.tool_call <-> user.tool_result 完整配对
-
-对话尾部 user
-  Todo + 熔断提醒等最新运行状态
-```
-
-- 固定规则保留在真正的 system prompt，可跨任务复用前缀缓存。
-- 任务级内容保持 user 权限，不会被错误提升为系统指令，并可在同一任务内缓存。
-- 云端 Provider 通过 API 原生 `tools` 字段传递工具 schema；历史中最后一条稳定 assistant 消息作为额外缓存分界，尾部动态状态不破坏旧前缀。
-- Anthropic 使用显式 `cache_control`；OpenAI-compatible Provider 读取并记录自动缓存命中量。
-
-### 5. 单阈值上下文管理
-
-`ContextCompressionManager` 是模型上下文缩减的唯一责任边界，默认替代简单滑动窗口：
-
-1. 每次组装请求时只执行一次固定规则卸载，将较早的截图、UI 树、浏览器、Shell 等大结果替换为紧凑占位。
-2. 保留最近 4 个完整轮次，并额外保留最新一次 UI 观察，避免最新指令、工具配对和当前页面证据被改写。
-3. 按模型上下文窗口估算 Token，只有达到“上下文窗口减去输出保留量”这一安全阈值时，才调用 LLM 摘要较早的连续历史。
-4. 新摘要与旧 checkpoint 合并为自然语言正文，以 `<context_summary>` 作为历史背景注入下一轮；原始事件记录仍是事实源。
-5. 每次决策不循环卸载、不递归调用多次摘要。摘要后仍超限或非短暂错误会直接报错；网络、限流、5xx 等短暂错误最多重试 3 次。
-
-用户可在设置中关闭“智能上下文压缩”，回退为旧版固定轮次窗口。跨 AgentLoop 的普通用户/助手文字对话另行按“连续会话保留对话轮数”注入，默认 8 轮、总长度上限 8K 字符，与任务内工具历史压缩不是同一概念。
-
-### 6. 页面变化不能只相信 `true`
-
-原生点击接口返回成功，通常只说明动作已派发。豆泡把结果进一步区分为：
-
-- `verified_changed`：已检测到结构、前台应用或画面发生变化。
-- `verified_unchanged`：确认动作后页面没有变化。
-- `accepted_unverified`：动作被系统接受，但当前证据不足以验证。
-
-这样模型不会把“接口返回 true”误判为业务目标已经推进。
-
-### 7. 工具循环熔断
-
-熔断器不额外观察页面，而是消费已有的工具调用与结果：
-
-1. 规范化工具名和参数。
-2. 对接近坐标进行网格化，识别重复点击。
-3. 比较结果指纹和显式页面变化信号。
-4. 达到工具独立阈值时先预警，再阻止等价动作继续执行。
-5. 检测到真实进展后清除无进展状态并记录恢复事件。
-
-## 目录结构
-
-```text
-vision-route-search/
-├── Readme.md                         # 项目说明
-├── PROJECT_EXPERIENCE.md             # 面试/项目介绍材料
-├── guidedog-agent/                   # 豆泡 React Native App
-│   ├── app/
-│   │   ├── chat/                     # 对话与内嵌卡控
-│   │   ├── history/                  # 会话历史
-│   │   ├── onboarding/               # 权限与初始化
-│   │   └── settings/                 # 通用、模型、工具、经验设置
-│   ├── src/
-│   │   ├── agent/                    # App 与 AgentLoop 桥接、系统提示词
-│   │   ├── browser/                  # WebView 浏览器会话与工具
-│   │   ├── device-agent/             # AgentLoop、Provider、Tools、熔断
-│   │   ├── modelCatalog/              # 模型目录拉取、缓存与搜索
-│   │   ├── shell/                    # shell_execute 工具协议
-│   │   └── store/                    # AsyncStorage 与轻量 Store
-│   ├── plugins/android/              # Android 服务、Receiver、Shell 运行时
-│   └── android/                      # Android Gradle 工程
+doupao/
+├── Readme.md
+├── PROJECT_EXPERIENCE.md
+├── guidedog-agent/                    # React Native 应用与 Agent 运行时
+│   ├── app/                           # 对话、历史、引导、设置页面
+│   ├── src/agent/                     # App 与 AgentLoop 桥接、提示词、Trace
+│   ├── src/device-agent/              # AgentLoop、Provider、Tools、上下文与熔断
+│   ├── src/browser/                   # 内置浏览器会话与工具
+│   ├── src/web-search/                # 联网搜索工具
+│   ├── src/shell/                     # Shell 工具协议
+│   ├── src/store/                     # 会话、设置、技能与执行状态
+│   ├── plugins/android/               # Kotlin 原生服务、Shell 与系统能力
+│   └── android/                       # Android Gradle 工程
 ├── react-native-accessibility-controller/
-│   ├── src/                          # React Native API
-│   └── android/                      # AccessibilityService 原生实现
-├── openspec/                         # Proposal、Design、Spec 与任务记录
-└── OpenMinis/                        # 架构调研与对照源码
+│   ├── src/                           # React Native API 与轮询工具
+│   └── android/                       # AccessibilityService、手势、截图与悬浮窗
+├── openspec/                          # Proposal、Design、Spec 与任务记录
+└── OpenMinis/                         # 架构调研与对照源码
 ```
+
+整体分为两种语言层：
+
+- **React Native / TypeScript**：产品 UI、Agent 运行时、工具编排、Provider、上下文和状态管理；
+- **Kotlin / Android**：无障碍服务、手势派发、截图、OCR、悬浮窗、后台保活、权限和宿主系统能力。
 
 ## 技术栈
 
@@ -257,7 +175,7 @@ vision-route-search/
 - Kotlin、Android AccessibilityService、MediaProjection、Foreground Service、Alarm
 - React Native WebView
 - ExecuTorch + Gemma 端侧模型
-- BusyBox；Alpine Linux + PRoot 兼容运行时
+- BusyBox
 - AsyncStorage + 轻量发布订阅 Store
 - Jest、ts-jest、TypeScript strict 检查
 
@@ -269,20 +187,15 @@ vision-route-search/
 - JDK 17
 - Android SDK / Build Tools
 - Android 8.0（API 26）及以上真机
-- 当前仓库约定位置的本地依赖：
+- 与主工程同级的本地依赖：
   - `react-native-accessibility-controller`
   - `react-native-executorch`
 
-### 安装依赖
+### 安装依赖与校验
 
 ```bash
 cd guidedog-agent
 npm install
-```
-
-### 类型检查与测试
-
-```bash
 npm run typecheck
 npm test -- --runInBand --forceExit
 ```
@@ -294,7 +207,7 @@ cd guidedog-agent/android
 NODE_ENV=production ./gradlew :app:assembleRelease
 ```
 
-APK 输出位置：
+输出位置：
 
 ```text
 guidedog-agent/android/app/build/outputs/apk/release/app-release.apk
@@ -306,32 +219,32 @@ guidedog-agent/android/app/build/outputs/apk/release/app-release.apk
 adb install -r app/build/outputs/apk/release/app-release.apk
 ```
 
-不要把 Debug APK 当作离线安装包；Debug 构建依赖 Metro，独立装机应使用 Release APK。
+Debug 构建依赖 Metro，独立装机请使用 Release APK。
 
 ## 首次运行
 
-1. 安装并打开豆泡。
-2. 按引导开启无障碍服务和悬浮窗权限。
-3. 根据需要配置云端模型，或准备端侧 Gemma 模型。
-4. 使用截图时按系统提示授予 MediaProjection 权限。
-5. 使用语音时授予麦克风权限。
-6. 在 MIUI/HyperOS 上建议关闭豆泡的电池优化限制。
+1. 安装并打开豆泡；
+2. 按引导开启无障碍服务和悬浮窗权限；
+3. 配置云端模型，或下载并加载端侧 Gemma 模型；
+4. 首次使用截图时，根据系统提示授权屏幕捕获；
+5. 使用语音或定位能力时授予相应权限；
+6. 在 MIUI/HyperOS 等系统上，建议关闭豆泡的电池优化限制。
 
 ## 当前边界
 
-- 无障碍树质量由目标 App 决定；Canvas、游戏及部分 WebView 必须依赖视觉信息。
-- 像素差异只能证明画面发生变化，不能单独证明业务目标已经达成。
-- BusyBox 覆盖常用 Unix 命令，但不是完整 Linux 发行版；复杂依赖可切换 Alpine+PRoot 兼容运行时。
-- Shell 无 Android 系统特权；系统级操作只能使用明确开放的宿主命令或 Android UI 工具。
-- 内置 WebView 的登录兼容性受站点策略影响，不能替代完整 Chrome 环境。
-- 不同 Android ROM 对无障碍手势、后台启动和进程冻结的限制不同，需要持续真机回归。
+- 无障碍树质量由目标 App 决定；Canvas、游戏和部分 WebView 仍需依赖视觉信息。
+- 动作已派发、页面已变化和业务目标已完成是三个不同状态，最终结果仍需证据验证。
+- BusyBox 覆盖常用 Unix 命令，但不是完整 Linux 发行版；未内置的复杂依赖无法直接安装。
+- Shell 不具备 Android 系统特权；系统操作只能通过明确开放的宿主命令或 UI 工具完成。
+- 内置 WebView 的登录兼容性受站点策略影响，不能完全替代系统 Chrome。
+- Android ROM 对无障碍手势、后台启动和进程冻结的限制不同，需要持续真机回归。
 
 ## 参考项目
 
-- [OpenMinis](https://github.com/OpenMinis/OpenMinis)：通用助手、浏览器工具与工具循环治理的设计参考。
+- [OpenMinis](https://github.com/OpenMinis/OpenMinis)：通用助手、浏览器工具和工具循环治理参考。
 - [MobileAgent](https://github.com/X-PLUG/MobileAgent)：移动端 Agent 感知与操作范式参考。
 - [react-native-executorch](https://github.com/software-mansion/react-native-executorch)：端侧模型运行时。
 
 ## License
 
-`guidedog-agent` 使用 MIT License；第三方运行时及本地依赖遵循各自许可证。BusyBox、PRoot 和 Alpine 相关来源与许可证见 `guidedog-agent/assets/shell/NOTICE.md`。
+`guidedog-agent` 使用 MIT License；第三方运行时及本地依赖遵循各自许可证。BusyBox 的来源与许可证见 `guidedog-agent/assets/shell/NOTICE.md`。

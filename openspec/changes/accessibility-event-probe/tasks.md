@@ -3,7 +3,7 @@
 - [x] 1.1 创建 Android 项目（Kotlin，Empty Activity 模板，minSdk 31）
 - [x] 1.2 配置 Gradle（仅 AndroidX 基础库，无第三方依赖）
 - [x] 1.3 创建 res/xml/accessibility_service_config.xml（事件类型 + flag + canRetrieveWindowContent + canTakeScreenshots + packageNames 空）
-- [x] 1.4 定义存储目录结构（<外部存储>/vision-route-search/scenarios/<scenario_id>/recordings/<recording_id>/）
+- [x] 1.4 定义存储目录结构（<外部存储>/doupao/scenarios/<scenario_id>/recordings/<recording_id>/）
 
 ## 2. AccessibilityService 实现
 
