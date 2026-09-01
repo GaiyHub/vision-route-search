@@ -17,6 +17,51 @@ const path = require('path');
 
 // ─── Step 1: AndroidManifest.xml ─────────────────────────────────────────────
 
+const EVALUATION_ENTRY_ACTIVITY = '.EvaluationEntryActivity';
+const EVALUATION_API_METADATA = 'com.watchdog.agent.EVALUATION_API_VERSION';
+
+/**
+ * Add the default-on, shell-only evaluation capability to the ordinary APK.
+ * Kept pure so the security-sensitive manifest contract can be unit tested.
+ * @param {Record<string, any>} manifest
+ */
+function applyEvaluationManifest(manifest) {
+  const app = manifest.application[0];
+  if (!app['meta-data']) app['meta-data'] = [];
+  const existingMetadata = app['meta-data'].find(
+    (item) => item.$['android:name'] === EVALUATION_API_METADATA,
+  );
+  if (existingMetadata) {
+    existingMetadata.$['android:value'] = '1';
+  } else {
+    app['meta-data'].push({
+      $: {
+        'android:name': EVALUATION_API_METADATA,
+        'android:value': '1',
+      },
+    });
+  }
+
+  if (!app['activity-alias']) app['activity-alias'] = [];
+  const existingAlias = app['activity-alias'].find(
+    (item) => item.$['android:name'] === EVALUATION_ENTRY_ACTIVITY,
+  );
+  const attributes = {
+    'android:name': EVALUATION_ENTRY_ACTIVITY,
+    'android:targetActivity': '.MainActivity',
+    'android:enabled': 'true',
+    'android:exported': 'true',
+    'android:permission': 'android.permission.DUMP',
+  };
+  if (existingAlias) {
+    existingAlias.$ = attributes;
+    delete existingAlias['intent-filter'];
+  } else {
+    app['activity-alias'].push({ $: attributes });
+  }
+  return manifest;
+}
+
 function withManifest(config) {
   return withAndroidManifest(config, (cfg) => {
     const manifest = cfg.modResults.manifest;
@@ -36,6 +81,8 @@ function withManifest(config) {
       'android:minSdkVersion': '34',
     });
     ensurePerm('android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION');
+
+    applyEvaluationManifest(manifest);
 
     // Service declaration
     const app = manifest.application[0];
@@ -440,3 +487,4 @@ const withDeftForegroundService = (config) => {
 };
 
 module.exports = withDeftForegroundService;
+module.exports.applyEvaluationManifest = applyEvaluationManifest;

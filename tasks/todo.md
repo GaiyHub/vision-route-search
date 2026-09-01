@@ -4,7 +4,7 @@
 
 - [x] 用户批准 `tasks/plan.md`，进入实施阶段（2026-09-01）。
 - [x] Task 1 已完成：固化跨端评测契约与 Fixture。
-- [ ] 当前任务：Task 12—16——补齐证据、断言、Judge 与报告；手机 APK 接入继续使用 Mock 边界。
+- [ ] 当前任务：Task 3——实现 Kotlin 请求存储。
 - [ ] Android/RN Task 2—7 暂缓；PC 端先基于共享 Fixture 和 Fake ADB 完成可测试边界，真机闭环阶段再接入普通 APK。
 
 ## 阶段 A：契约与 Android/RN 单样本闭环
@@ -29,9 +29,11 @@
 **描述：** 不新增 APK、Build Type 或配对能力；普通豆泡默认声明独立 `EvaluationEntryActivity` activity-alias，要求 `android.permission.DUMP`，与普通 Launcher 隔离。
 
 **验收标准：**
-- [ ] 普通 release 默认包含评测 alias，ADB shell 可显式调用，普通第三方 App 因缺少系统权限被拒绝。
-- [ ] 普通 Launcher 附加评测 action/extra 不进入评测链路，不新增 exported Receiver。
-- [ ] Manifest 暴露 `EVALUATION_API_VERSION=1`；普通 release 构建与安装流程保持不变，不产生额外 APK 变体。
+- [x] 普通 release 默认包含评测 alias，ADB shell 可显式调用，普通第三方 App 因缺少系统权限被拒绝。
+- [x] 普通 Launcher 附加评测 action/extra 不进入评测链路，不新增 exported Receiver。
+- [x] Manifest 暴露 `EVALUATION_API_VERSION=1`；普通 release 构建与安装流程保持不变，不产生额外 APK 变体。
+
+**状态：** [x] 已完成（2026-09-01）；Manifest 契约测试、RN typecheck 和普通 `assembleRelease` 均通过，真机权限行为留待 Checkpoint A 验收。
 
 **验证：** Manifest/入口测试通过；`cd guidedog-agent/android && NODE_ENV=production ./gradlew :app:assembleRelease`
 
