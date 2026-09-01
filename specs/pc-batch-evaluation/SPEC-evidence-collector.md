@@ -2,15 +2,15 @@
 
 ## 目标
 
-复用豆泡现有 OTel/Todo 产物，并补充设备最终状态，形成确定性断言和 LLM Judge 共用的可信证据包。
+复用豆泡现有 OTel/Todo 生成逻辑，但使用评测专用持久化路径，并补充设备最终状态，形成确定性断言和 LLM Judge 共用的可信证据包。
 
 ## 证据来源
 
 ### 豆泡已有产物
 
 - `evaluation/<runId>/<sampleId>/<requestId>/status.json`：完整执行结果及 `traceId`。
-- `tasklogs/otel-<traceId>.jsonl`：Agent 根 Span、模型调用、工具调用、结果、错误与事件。
-- `tasklogs/todo-<traceId>.json`：目标、Todo 项及最终 outcome；文件可能不存在，因为 Todo 为按需工具。
+- `evaluation/<runId>/<sampleId>/<requestId>/otel.jsonl`：Agent 根 Span、模型调用、工具调用、结果、错误与事件。
+- `evaluation/<runId>/<sampleId>/<requestId>/todo.json`：目标、Todo 项及最终 outcome；文件可能不存在，因为 Todo 为按需工具。
 
 ### PC 通过 ADB 补采
 
@@ -28,9 +28,10 @@
 - 先将原始文件保存到 `.data/runs/<runId>/samples/<sampleId>/raw/`，再生成 normalized 结果。
 - 以 OTel 根 `agent.request` Span 已结束作为 Trace 完整证据；状态终态但根 Span 缺失时，在宽限期内继续拉取。
 - 安全处理 JSONL 部分写入；限制文件大小、行长度、事件数、截图尺寸和 XML 大小。
+- readiness 阶段先验证 ADB shell 可读取 evaluation 目录；不可读取时返回 `EVALUATION_ARTIFACTS_UNAVAILABLE`，不得改写普通 `tasklogs` 或引入 debuggable APK 作为降级。
 - 原始产物一经保存不可修改；解析修复、摘要和脱敏副本写入独立目录。
 - 可选 Todo、截图或 UI 层级缺失只产生告警；依赖该证据的必选断言返回 `EVIDENCE_MISSING`。
-- OTel 根 Span 和 Todo JSON 必须标记 `source=EVALUATION` 及 `runId/sampleId/requestId`；所有文件同时匹配 `runId/sampleId/requestId/traceId` 关联链，禁止仅按时间戳猜测归属。
+- OTel 根 Span 和 Todo JSON 必须标记 `source=EVALUATION` 及 `runId/sampleId/requestId`；所有文件同时匹配 `runId/sampleId/requestId/traceId` 关联链，禁止仅按时间戳猜测归属，也禁止写入普通 `tasklogs`。
 
 ## 数据安全
 

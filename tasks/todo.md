@@ -4,7 +4,7 @@
 
 - [x] 用户批准 `tasks/plan.md`，进入实施阶段（2026-09-01）。
 - [x] Task 1 已完成：固化跨端评测契约与 Fixture。
-- [ ] 当前任务：Task 2——实现普通 APK 的评测会话授权。
+- [ ] 当前任务：Task 2——实现普通 APK 的受保护评测入口。
 
 ## 阶段 A：契约与 Android/RN 单样本闭环
 
@@ -23,20 +23,20 @@
 
 **文件范围：** `guidedog-agent/src/evaluation/`、`specs/pc-batch-evaluation/fixtures/`
 
-### Task 2：实现普通 APK 的评测会话授权（M）
+### Task 2：实现普通 APK 的受保护评测入口（S）
 
-**描述：** 不新增 APK 或 Build Type；在普通豆泡内提供默认关闭、用户显式开启且可过期/撤销的本地评测会话，生成配对密钥并验证请求 HMAC。
+**描述：** 不新增 APK、Build Type 或配对能力；普通豆泡默认声明独立 `EvaluationEntryActivity` activity-alias，要求 `android.permission.DUMP`，与普通 Launcher 隔离。
 
 **验收标准：**
-- [ ] 普通豆泡未开启会话时拒绝所有评测请求，开启、过期和关闭状态可明确查询。
-- [ ] 配对密钥仅展示一次且不进入 Intent、日志、状态或报告；签名错误和过期请求在 Kotlin 边界被拒绝。
-- [ ] 普通 release 构建与安装流程保持不变，App 在会话有效期间明确显示本地评测状态。
+- [ ] 普通 release 默认包含评测 alias，ADB shell 可显式调用，普通第三方 App 因缺少系统权限被拒绝。
+- [ ] 普通 Launcher 附加评测 action/extra 不进入评测链路，不新增 exported Receiver。
+- [ ] Manifest 暴露 `EVALUATION_API_VERSION=1`；普通 release 构建与安装流程保持不变，不产生额外 APK 变体。
 
-**验证：** RN/Kotlin 会话测试通过；`cd guidedog-agent/android && NODE_ENV=production ./gradlew :app:assembleRelease`
+**验证：** Manifest/入口测试通过；`cd guidedog-agent/android && NODE_ENV=production ./gradlew :app:assembleRelease`
 
 **依赖：** Task 1
 
-**文件范围：** `guidedog-agent/plugins/android/`、`guidedog-agent/src/evaluation/`、设置页最小评测会话入口与测试
+**文件范围：** `guidedog-agent/plugins/withDeftForegroundService.js`、Manifest 测试
 
 ### Task 3：实现 Kotlin 请求存储（M）
 
@@ -55,11 +55,11 @@
 
 ### Task 4：接入 Activity Intent 与 Native Module（M）
 
-**描述：** 在普通 APK 中处理经过有效会话认证的显式 evaluate/cancel Intent，并通过现有 Native Module 暴露 consume、状态写入和取消事件。
+**描述：** 在普通 APK 中处理来自受保护 alias 的显式 evaluate/cancel Intent，并通过现有 Native Module 暴露 consume、状态写入和取消事件。
 
 **验收标准：**
 - [ ] 冷启动和 `onNewIntent` 都能提交请求，消费 API 是唯一事实来源。
-- [ ] 未开启、已过期或认证失败的请求被普通 APK 拒绝，且不新增 exported Receiver。
+- [ ] 普通 Launcher 或非评测组件来源被拒绝，且不新增 exported Receiver。
 - [ ] cancel 只影响匹配的当前 `requestId`，重复取消幂等。
 
 **验证：** Kotlin 单测通过；`assembleRelease` 成功。
@@ -100,11 +100,11 @@
 
 ### Task 7：实现 RN EvaluationBridge（M）
 
-**描述：** 消费 Native 请求、调用隔离 `processCommand`、写入 ACCEPTED/RUNNING/终态，并在终态前等待 OTel/Todo flush。
+**描述：** 消费 Native 请求、调用隔离 `processCommand`、写入 ACCEPTED/RUNNING/终态，并将 OTel/Todo flush 到 request 对应的独立 evaluation 目录。
 
 **验收标准：**
 - [ ] 冷启动、前台请求、重复事件和取消均只执行一次。
-- [ ] status、OTel 与 Todo 携带完整 `runId/sampleId/requestId/traceId` 关联链。
+- [ ] status、OTel 与 Todo 携带完整关联链，只写 request 对应的 evaluation 目录，不写普通 `tasklogs`。
 - [ ] 一个复杂 UTF-8 指令可通过 ADB 获得结构化终态和完整 summary。
 
 **验证：** RN 测试、Android 构建和一条真机冒烟样本通过。
@@ -117,7 +117,7 @@
 
 - [ ] 普通 release 构建成功，未产生额外 APK 变体。
 - [ ] 真机普通问答完成，Trace 在终态前落盘。
-- [ ] 普通用户数据零写入，会话关闭后不响应评测 action。
+- [ ] 普通用户数据和普通日志零写入，普通 Launcher/第三方 App 不响应评测 action。
 
 ## 阶段 B：PC 最小运行器
 
@@ -264,7 +264,7 @@
 
 ### Task 18：真机验收与文档（M）
 
-**描述：** 使用用户当前安装的普通 APK 执行问答、GUI、预期 BLOCKED 三类样本及故障回归，补齐会话配对、评测和关闭文档。
+**描述：** 使用用户当前安装的普通 APK 执行问答、GUI、预期 BLOCKED 三类样本及故障回归，补齐评测接口、ADB readiness 和使用文档。
 
 **验收标准：** WebUI 无需终端完成主流程；普通 release/chat 行为不变；评测前后用户配置与普通数据一致；报告完整可审计。
 

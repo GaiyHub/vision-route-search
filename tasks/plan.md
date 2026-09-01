@@ -21,35 +21,36 @@
 | Agent 主入口与运行生命周期 | `guidedog-agent/src/agent/agentBridge.ts` | 向后兼容地增加执行选项、结构化结果和生命周期观察点 |
 | 并发保护 | `guidedog-agent/src/store/agentStore.ts` | 继续作为 Android 运行中状态事实来源 |
 | 会话消息 | `guidedog-agent/src/store/chatStore.ts` | evaluation 使用隔离上下文，不清除设置与 Skills |
-| OTel Trace | `guidedog-agent/src/agent/otelLogger.ts` | 复用 external files 下的 `otel-<traceId>.jsonl` |
-| Todo 产物 | `guidedog-agent/src/agent/todoFileStore.ts` | 复用 `todo-<traceId>.json`，允许不存在 |
+| OTel Trace | `guidedog-agent/src/agent/otelLogger.ts` | 复用生成逻辑，evaluation 改写到独立评测目录 |
+| Todo 产物 | `guidedog-agent/src/agent/todoFileStore.ts` | 复用生成逻辑，evaluation 改写到独立评测目录，允许不存在 |
 | 人工交互工具 | `agentBridge.ts` 中 completion、risk、ask_user、request_user_action | 通过运行策略注入 evaluation 行为，不复制工具实现 |
 | Expo Android 配置 | `guidedog-agent/plugins/withDeftForegroundService.js` | 作为普通 APK 内 Kotlin 源同步和 Activity 接线的事实来源 |
-| Android Host Module | `guidedog-agent/plugins/android/DeftAgentModule.kt` | 增加受会话认证保护的请求消费、状态写入和取消能力 |
+| Android Host Module | `guidedog-agent/plugins/android/DeftAgentModule.kt` | 增加受 Android 系统权限保护的请求消费、状态写入和取消能力 |
 
 ## 4. 架构决策
 
-### 4.1 直接使用普通 APK，评测入口按会话授权
+### 4.1 直接使用普通 APK，默认提供受保护评测入口
 
 - 不新增 `evaluation` Build Type、独立 APK、`applicationIdSuffix` 或覆盖安装流程，直接评测用户当前安装的 `com.watchdog.agent`。
-- 普通 APK 内置评测桥接，但默认关闭；用户在 App 内显式开启短期本地评测会话，并可随时关闭。
-- 每次会话生成随机 `sessionId` 和仅展示一次的配对密钥；PC 保存于进程内存，使用 HMAC-SHA256 为每个不可变请求签名，密钥不进入 Intent、日志或报告。
-- 会话过期、用户关闭、签名错误或超出重放窗口时，Kotlin 在请求进入 RN 前拒绝执行。
+- 普通 APK 默认内置并启用评测桥接，不实现开关、会话、配对、密钥或 HMAC。
+- 新增指向 `MainActivity` 的 `EvaluationEntryActivity` activity-alias，与普通 Launcher 分离，设置 `exported=true` 并要求 `android.permission.DUMP`。
+- ADB shell 通过显式组件调用；普通第三方 App 由 Android 权限系统在组件分发前拒绝。目标 ROM 若不允许 shell 使用该权限，则 readiness 失败，不降级为无保护入口。
+- Manifest 声明只读 `EVALUATION_API_VERSION=1` 能力标识，PC 在提交前校验兼容性；该标识不产生用户配置。
 - 评测运行只读复用现有模型配置、API Key、Skills、工具开关及权限；普通用户数据零写入由 execution scope 保证，而不是通过 APK 隔离保证。
 
 ### 4.2 使用显式 Activity Intent 作为指令入口
 
-- PC 调用显式 Activity Intent，传入 `sessionId`、签名和 Base64URL payload；不在命令参数中传输配对密钥。
-- 不增加 exported Receiver；复用当前已导出的 Launcher Activity，在 `onCreate` 和 `onNewIntent` 中先验证有效评测会话，再处理 action。
+- PC 调用受 `android.permission.DUMP` 保护的显式 activity-alias，传入 Base64URL payload。
+- 不增加 exported Receiver；`MainActivity` 只接受从评测 alias 进入且 action 匹配的请求，普通 Launcher 附加 extra 不触发评测。
 - 请求 JSON 采用 UTF-8 + Base64URL，单一 extra 传递；Kotlin 校验解码后字节数、Schema、ID、hash 和 timeout。
 - 取消使用独立 action `com.watchdog.agent.action.CANCEL_EVALUATION`，只接受与当前 `requestId` 匹配的请求。
-- 未开启、已关闭或过期的评测会话会拒绝 action，不进入 RN 评测链路。
+- 普通第三方 App 或普通 Launcher 发起的请求会被拒绝，不进入 RN 评测链路。
 
 ### 4.3 Kotlin 只负责安全边界与持久化
 
 新增 `EvaluationRequestStore.kt`，职责保持有限：
 
-- 先由 `EvaluationSessionStore` 校验会话与签名，再接收、校验并幂等登记一个请求；同 ID 不同 hash 返回冲突。
+- 接收、校验并幂等登记一个请求；同 ID 不同 hash 返回冲突。
 - RN 未就绪时缓存一个待消费请求，RN 通过 `consumePendingEvaluationRequest()` 获取。
 - 通过 `DeviceEventEmitter` 提醒已运行的 RN，但实际消费仍走原子 consume，防止事件丢失。
 - 在 `getExternalFilesDir("evaluation")/<runId>/<sampleId>/<requestId>/` 原子写入 `request.json` 与 `status.json`。
@@ -92,7 +93,7 @@
 | Chat、History | 不读取为上下文，不追加、不清空 |
 | 全局 Token 统计 | 不累计；仅返回本次评测 Token |
 | `deft:resumableTask` | 不读写；评测恢复使用 request/status 文件 |
-| OTel/Todo | 继续写现有产物，但必须携带 evaluation 来源与四级关联 ID |
+| OTel/Todo | 复用生成逻辑，但写入 request 对应的 evaluation 目录，不写普通 `tasklogs` |
 | evaluation request/status | 写入 `evaluation/<runId>/<sampleId>/<requestId>/` |
 | PC 端证据与报告 | 写入 `.data/runs/<runId>/samples/<sampleId>/` |
 
@@ -162,11 +163,11 @@ evidence-collector
 目标：尽早验证最危险的跨端链路。
 
 - 固化 `EvalRequestV1`、`EvalStatusV1`、`CommandExecutionResult` 与错误码 Fixture。
-- 建立普通 APK 内的短期评测会话授权与 Kotlin Intent Gateway。
+- 建立普通 APK 内默认可用、受 `android.permission.DUMP` 保护的 Kotlin Intent Gateway。
 - 扩展 `processCommand` 的评测策略和结果返回，增加 RN EvaluationBridge。
 - 为 Chat、History、全局 Token 和 resumable persistence 增加 execution scope，验证 evaluation 路径零写入。
 - 用 ADB 发送一个包含中文、引号和换行的普通问答；获得 `COMPLETED`、完整 summary 与 traceId。
-- 验证未授权、过期和签名错误请求均被拒绝，聊天模式回归测试通过，评测前后用户配置与普通数据一致。
+- 验证 ADB shell 可调用、普通第三方 App 和普通 Launcher 无法调用，聊天模式回归测试通过，评测前后用户配置、普通数据和普通日志一致。
 
 检查点 A：真机单样本闭环成功后，才继续大规模 PC 开发。
 
@@ -232,8 +233,8 @@ evidence-collector
 
 - 执行普通问答、GUI 操作、预期 `BLOCKED` 三类样本。
 - 验证重复 Intent、取消、冷启动、App 已运行、MediaProjection 缺失和设备断开。
-- 验证普通 APK 在会话关闭后不响应评测 action，普通聊天连续对话与人工卡控不变。
-- 更新 README 中的会话开启、配对、关闭和普通 APK 评测方法。
+- 验证普通第三方 App 和普通 Launcher 不响应评测 action，普通聊天连续对话与人工卡控不变。
+- 更新 README 中的普通 APK 评测接口、ADB readiness 和使用方法。
 
 ## 7. 并行与串行关系
 
@@ -288,7 +289,7 @@ adb -s <serial> shell dumpsys package com.watchdog.agent
 | 风险 | 影响 | 缓解措施 |
 | --- | --- | --- |
 | RN 冷启动时 Intent 事件早于 JS 订阅 | 高 | Kotlin Store 持久/缓存待消费请求；事件仅作提示，consume 才是事实来源 |
-| 普通 APK 暴露未授权自动化入口 | 高 | 默认关闭；用户显式开启短期会话；HMAC 请求认证；过期与关闭立即失效 |
+| 普通 APK 暴露未授权自动化入口 | 高 | 独立 activity-alias；要求 `android.permission.DUMP`；普通 Launcher 不处理评测 extra；真机验证 shell/第三方权限边界 |
 | 改造 `processCommand` 破坏聊天模式 | 高 | 所有新参数有默认值；先补聊天回归测试；新增行为只在 `source='EVALUATION'` 启用 |
 | evaluation 污染用户配置或普通历史 | 高 | 使用显式 execution scope 禁用 Chat/History/全局 Token/resumable 写入；Store Mock 与真机前后对比双重验证 |
 | 评测 Trace 与普通 Trace 混淆 | 高 | 根 Span、Todo、status 全部携带四级关联 ID；Evidence Collector 校验完整链后才接受 |
@@ -322,9 +323,9 @@ adb -s <serial> shell dumpsys package com.watchdog.agent
 
 ## 12. 已确认约束
 
-1. 直接使用用户当前安装的普通豆泡 APK，不新增构建变体或覆盖安装；评测入口通过用户显式开启的短期会话授权。
+1. 直接使用用户当前安装的普通豆泡 APK，不新增构建变体、配对或覆盖安装；普通 APK 默认提供受 `android.permission.DUMP` 保护的评测入口。
 2. evaluation 不影响任何用户配置，也不写入普通聊天、历史、全局 Token 统计或普通 resumable task。
-3. 评测数据使用 `runId/sampleId/requestId/traceId` 标识隔离，并保存到独立的 Android evaluation 目录和 PC Run/Sample 目录。
+3. 评测数据使用 `runId/sampleId/requestId/traceId` 标识隔离，并保存到独立的 Android evaluation 目录和 PC Run/Sample 目录；评测 OTel/Todo 不写普通 `tasklogs`。
 4. 首版仅使用设备端已有豆泡配置，不在 WebUI 中管理模型与 Skills。
 
 当前无阻塞性架构问题；仍需用户批准更新后的 Plan，之后才能进入 Tasks 阶段。

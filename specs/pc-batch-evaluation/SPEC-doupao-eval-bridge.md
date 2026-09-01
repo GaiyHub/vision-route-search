@@ -14,14 +14,16 @@
 ## 普通 APK 内的入口隔离
 
 - 不新增 evaluation Variant、独立 APK、`applicationIdSuffix` 或覆盖安装流程；直接使用用户当前安装的普通豆泡 APK。
-- 评测入口随普通 APK 发布但默认关闭；用户必须在 App 内显式开启一个有过期时间的本地评测会话，并可随时关闭。
-- 开启会话时生成随机 `sessionId` 和仅展示一次的配对密钥；PC 端使用该密钥对 `requestId + requestHash` 生成 HMAC-SHA256 签名，密钥本身不随 Intent 传输。
-- 会话 ID、签名和 payload 组成传输信封；会话关闭、过期、签名错误或重放窗口超限时，Kotlin 边界在进入 RN 前拒绝请求。
-- App 在会话有效期间清晰显示“本地评测已开启”，普通聊天和设置仍可使用。
+- 普通 APK 默认提供评测接口，不实现开关、会话、配对、密钥或 HMAC。
+- 不复用无权限保护的普通 Launcher 作为评测入口；新增指向 `MainActivity` 的独立 `EvaluationEntryActivity` activity-alias，设置 `exported=true` 且要求 `android.permission.DUMP`。
+- Manifest 声明只读能力标识 `com.watchdog.agent.EVALUATION_API_VERSION=1`，PC 在提交任务前校验版本；该标识不是运行开关，不写用户配置。
+- PC 仅通过 `adb shell am start -n com.watchdog.agent/.EvaluationEntryActivity` 调用；Android 在组件分发前完成权限校验，普通第三方 App 无权调用。
+- evaluate 与 cancel 使用同一受保护入口和不同 action；普通 Launcher、聊天和设置行为不变。
+- `android.permission.DUMP` 在目标 Android/ROM 上的 shell 可用性必须通过真机测试；不满足时返回明确的 readiness 错误，不降级为无权限入口。
 
 ## ADB 请求契约
 
-PC 使用显式 Activity Intent 启动或唤醒用户已安装的普通豆泡 APK。请求 JSON 先做 UTF-8 编码，再使用 Base64URL 作为单一 payload extra；会话 ID 与签名使用独立 extra，避免中文和特殊字符转义问题，且不把配对密钥放入命令参数。
+PC 使用显式 Activity Intent 启动或唤醒用户已安装的普通豆泡 APK。请求 JSON 先做 UTF-8 编码，再使用 Base64URL 作为单一 payload extra，避免中文和特殊字符转义问题。
 
 ```ts
 interface EvalRequestV1 {
@@ -44,11 +46,11 @@ interface EvalRequestV1 {
 
 ## Kotlin EvaluationGateway
 
-- `MainActivity` 识别评测 action 后，先由 `EvaluationSessionStore` 验证会话 ID、过期时间和签名，再将 payload 交给 `EvaluationRequestStore`。
+- 只有从受保护 activity-alias 进入且 action 匹配时，`MainActivity` 才将 payload 交给 `EvaluationRequestStore`。
 - RN 尚未就绪时，Native Store 保留一个待消费请求；RN 就绪后通过 Native Module 主动 consume。
 - RN 已就绪时，可发出 `evaluation-request` 事件，但 consume API 仍是恢复和去重的事实来源。
-- 请求、当前状态和最终状态写入应用 external files 下的 `evaluation/<runId>/<sampleId>/<requestId>/`，采用临时文件加 rename 的原子写入策略。
-- Kotlin 边界负责会话认证、Base64URL、JSON Schema、大小、ID 和 hash 校验。
+- 请求、当前状态、最终状态、OTel 与 Todo 写入应用 external files 下的 `evaluation/<runId>/<sampleId>/<requestId>/`，采用临时文件加 rename 的原子写入策略；评测日志不得写入普通 `tasklogs`。
+- Kotlin 边界负责入口来源、Base64URL、JSON Schema、大小、ID 和 hash 校验。
 
 ## RN 执行契约
 
@@ -101,7 +103,7 @@ type EvalStatusV1 =
 
 ## 取消
 
-- PC 超时或用户取消时，通过同一评测会话认证的 cancel Intent 传递 `requestId`。
+- PC 超时或用户取消时，通过同一受系统权限保护的入口发送 cancel Intent 并传递 `requestId`。
 - 只有当前活动 ID 匹配时才调用现有 `stopAgent()`；重复取消保持幂等。
 - 取消不能自动启动后续待处理请求。
 
@@ -114,4 +116,5 @@ type EvalStatusV1 =
 - 普通聊天模式的连续对话、完成确认和人工卡控行为保持不变。
 - evaluation 执行前后，用户配置、普通聊天、历史、全局 Token 统计和普通 resumable 数据保持不变。
 - 每份 evaluation status、OTel 与 Todo 均包含或可验证完整的 `runId/sampleId/requestId/traceId` 关联。
-- 未开启有效评测会话的普通 APK 无法通过评测 action 启动 Agent 任务；关闭会话不影响普通聊天能力。
+- ADB shell 可默认调用评测入口；普通第三方 App 调用被系统权限拒绝；普通 Launcher 无法通过附加评测 extra 绕过独立入口。
+- PC 可从普通 APK 的 Manifest 能力标识判断协议兼容性；版本不兼容时不得尝试提交任务。

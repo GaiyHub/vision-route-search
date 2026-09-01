@@ -9,13 +9,13 @@
 - 使用 `adb devices -l` 发现设备，只将状态为 `device` 的 serial 标记为可运行。
 - 保留并展示 offline、unauthorized 等状态及原因，但禁止选择运行。
 - 每次运行必须显式传入 serial；不得依赖 ADB 默认设备。
-- 启动前验证普通豆泡包已安装、用户已开启有效评测会话、入口可用，并记录包版本与设备信息。
+- 启动前验证普通豆泡包已安装、评测接口版本兼容、受保护入口可由 ADB shell 调用，并记录包版本与设备信息。
 
 ## 进程调用
 
 - 使用 `spawn(adbPath, args)` 或等价参数数组调用方式，不经过宿主机 Shell。
 - 限制 stdout/stderr 大小，为发现、启动、轮询、拉取、截图和取消分别设置超时。
-- 请求 JSON 使用 Base64URL 放入 Intent extra，并携带会话 ID 与 HMAC 签名；不得传输配对密钥或直接拼接原始指令。
+- 请求 JSON 使用 Base64URL 放入 Intent extra；不得直接拼接原始指令。
 - 轮询 evaluation external files 中的 `status.json`，解析前完成 Schema 校验。
 
 ## 执行语义
@@ -36,9 +36,9 @@
 - `DEVICE_OFFLINE`
 - `DOUPAO_PACKAGE_MISSING`
 - `EVALUATION_ENTRY_UNAVAILABLE`
-- `EVALUATION_SESSION_REQUIRED`
-- `EVALUATION_SESSION_EXPIRED`
-- `EVALUATION_AUTH_FAILED`
+- `EVALUATION_PERMISSION_DENIED`
+- `EVALUATION_API_INCOMPATIBLE`
+- `EVALUATION_ARTIFACTS_UNAVAILABLE`
 - `REQUEST_REJECTED`
 - `IDEMPOTENCY_CONFLICT`
 - `RUN_ALREADY_ACTIVE`
