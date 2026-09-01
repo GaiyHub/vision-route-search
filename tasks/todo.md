@@ -4,7 +4,7 @@
 
 - [x] 用户批准 `tasks/plan.md`，进入实施阶段（2026-09-01）。
 - [x] Task 1 已完成：固化跨端评测契约与 Fixture。
-- [ ] 当前任务：Task 3——实现 Kotlin 请求存储。
+- [ ] 当前任务：Task 4——接入 Activity Intent 与 Native Module。
 - [ ] Android/RN Task 2—7 暂缓；PC 端先基于共享 Fixture 和 Fake ADB 完成可测试边界，真机闭环阶段再接入普通 APK。
 
 ## 阶段 A：契约与 Android/RN 单样本闭环
@@ -46,9 +46,11 @@
 **描述：** 实现 Base64URL 解码、请求校验、幂等登记、活动请求冲突和 request/status 原子文件写入。
 
 **验收标准：**
-- [ ] 同一 `requestId + requestHash` 返回既有状态，同 ID 不同 hash 返回 `IDEMPOTENCY_CONFLICT`。
-- [ ] 请求只写入受限的 evaluation 目录，非法 ID、大小和 Schema 均被稳定错误码拒绝。
-- [ ] RN 未就绪时保留一个可原子消费的待处理请求。
+- [x] 同一 `requestId + requestHash` 返回既有状态，同 ID 不同 hash 返回 `IDEMPOTENCY_CONFLICT`。
+- [x] 请求只写入受限的 evaluation 目录，非法 ID、大小和 Schema 均被稳定错误码拒绝。
+- [x] RN 未就绪时保留一个可原子消费的待处理请求。
+
+**状态：** [x] 已完成（2026-09-01）；实现严格 Base64URL/UTF-8/JSON 边界、跨端 hash 校验、单活动请求、幂等登记和原子 request/status/pending 写入，3 项 Kotlin 单测通过。
 
 **验证：** `cd guidedog-agent/android && ./gradlew :app:testReleaseUnitTest`
 

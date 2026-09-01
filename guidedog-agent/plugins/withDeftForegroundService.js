@@ -321,6 +321,7 @@ function withKotlinFiles(config) {
         'RiskConfirmReceiver.kt',
         'UserActionReceiver.kt',
         'OverlayTextInputReceiver.kt',
+        'EvaluationRequestStore.kt',
       ]) {
         fs.copyFileSync(
           path.join(pluginAndroidDir, file),
@@ -343,6 +344,10 @@ function withKotlinFiles(config) {
       for (const file of shellTestFiles.filter((name) => !name.endsWith('InstrumentedTest.kt'))) {
         fs.copyFileSync(path.join(shellTestSourceDir, file), path.join(shellTestTargetDir, file));
       }
+      fs.copyFileSync(
+        path.join(pluginAndroidDir, 'EvaluationRequestStoreTest.kt'),
+        path.join(projectRoot, 'app', 'src', 'test', 'java', 'com', 'watchdog', 'agent', 'EvaluationRequestStoreTest.kt'),
+      );
       const shellAndroidTestTargetDir = path.join(
         projectRoot, 'app', 'src', 'androidTest', 'java', 'com', 'watchdog', 'agent', 'shell',
       );
@@ -409,6 +414,12 @@ function withShellPackaging(config) {
       contents = contents.replace(
         /dependencies \{\n/,
         'dependencies {\n    testImplementation("junit:junit:4.13.2")\n',
+      );
+    }
+    if (!contents.includes('testImplementation("org.json:json:20250517")')) {
+      contents = contents.replace(
+        /dependencies \{\n/,
+        'dependencies {\n    testImplementation("org.json:json:20250517")\n',
       );
     }
     if (!contents.includes("testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'")) {
