@@ -2,11 +2,11 @@
 
 ## 1. 计划状态
 
-- 当前阶段：Plan
+- 当前阶段：Implement（Plan 已于 2026-09-01 获得用户批准）
 - 规格入口：`specs/pc-batch-evaluation/SPEC-pc-batch-evaluation.md`
 - 能力索引：`specs/pc-batch-evaluation/CAPABILITY-MAP.md`
-- 任务清单：Plan 获得确认后，在 Tasks 阶段补充到 `tasks/todo.md`
-- 本计划不授权实现、装机或修改发布配置。
+- 任务清单：`tasks/todo.md`
+- 用户已授权开始实现；装机和发布配置仍按对应任务的验收边界执行。
 
 ## 2. 建设目标
 
