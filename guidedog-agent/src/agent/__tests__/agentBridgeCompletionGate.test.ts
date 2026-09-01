@@ -86,6 +86,8 @@ import {
   beginCompletionSupplement,
   buildAskUserTool,
   buildConfirmTool,
+  CommandExecutionRejectedError,
+  processCommand,
   recordTaskToolDispatch,
   rejectCompletion,
   requestCompletionDecision,
@@ -100,7 +102,7 @@ import {
   showCompletionNotification,
   showRiskConfirmNotification,
 } from '../foregroundService';
-import { agentStopped, getAgentState } from '../../store/agentStore';
+import { agentStarted, agentStopped, getAgentState } from '../../store/agentStore';
 import * as settingsStore from '../../store/settingsStore';
 
 async function flushPromises(): Promise<void> {
@@ -125,6 +127,18 @@ describe('agentBridge completion gate', () => {
   afterEach(() => {
     jest.clearAllTimers();
     jest.useRealTimers();
+  });
+
+  it('preserves chat busy behavior and exposes a stable evaluation rejection', async () => {
+    agentStarted('正在执行的任务');
+
+    await expect(processCommand('普通聊天请求')).resolves.toBeUndefined();
+    await expect(processCommand('评测请求', { source: 'EVALUATION' })).rejects.toEqual(
+      expect.objectContaining<Partial<CommandExecutionRejectedError>>({
+        name: 'CommandExecutionRejectedError',
+        code: 'RUN_ALREADY_ACTIVE',
+      }),
+    );
   });
 
   it('routes execution-backed informational work to tools without tool-filtering ordinary answers', () => {

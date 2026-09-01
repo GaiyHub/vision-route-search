@@ -127,6 +127,11 @@ import { AGENT_SYSTEM_PROMPT } from './prompts/agentSystemPrompt';
 import { buildEnvironmentContext } from './environmentContext';
 import { speakText } from '../voice/voiceBridge';
 import { markAutomatedHostForeground } from '../voice/hostEntrySpeechPolicy';
+import type {
+  CommandExecutionResult,
+  CommandOutcome,
+} from '../evaluation/contracts';
+import { createCommandExecutionResult } from '../evaluation/commandExecutionResult';
 
 export { COMPLETION_SUPPLEMENT_MAX_LENGTH } from './completionDecision';
 export { AGENT_SYSTEM_PROMPT };
@@ -1604,23 +1609,63 @@ AppState.addEventListener('change', (nextState) => {
 // Public API
 // ---------------------------------------------------------------------------
 
-export async function processCommand(command: string): Promise<void> {
+export interface CommandExecutionOptions {
+  source?: 'CHAT' | 'EVALUATION';
+  conversationMode?: 'CONTINUOUS' | 'ISOLATED';
+  completionPolicy?: 'ASK_USER' | 'AUTO_ACCEPT';
+  interactionPolicy?: 'WAIT_FOR_USER' | 'BLOCK';
+  onTraceStarted?: (event: { traceId: string; startedAt: string }) => void;
+}
+
+export class CommandExecutionRejectedError extends Error {
+  constructor(
+    public readonly code: 'RUN_ALREADY_ACTIVE',
+    message: string,
+  ) {
+    super(message);
+    this.name = 'CommandExecutionRejectedError';
+  }
+}
+
+function sessionOutcome(outcome: CommandOutcome): SessionOutcome {
+  if (outcome === 'complete' || outcome === 'stopped') return outcome;
+  return 'error';
+}
+
+export function processCommand(
+  command: string,
+  options: CommandExecutionOptions & { source: 'EVALUATION' },
+): Promise<CommandExecutionResult>;
+export function processCommand(
+  command: string,
+  options?: CommandExecutionOptions,
+): Promise<CommandExecutionResult | undefined>;
+export async function processCommand(
+  command: string,
+  options: CommandExecutionOptions = {},
+): Promise<CommandExecutionResult | undefined> {
   // Reject overlapping runs: starting a new task while one is still active
   // would clobber module-level state (heartbeat timers, active loop) and
   // leave the previous run's timers and UI state (step progress, elapsed
   // time) running after it finished.
   if (getAgentState().isRunning) {
     addMessage('agent', 'text', '当前已有任务在运行，请先等待完成或停止后再继续。');
-    return;
+    if (options.source !== 'EVALUATION') return undefined;
+    throw new CommandExecutionRejectedError(
+      'RUN_ALREADY_ACTIVE',
+      '当前已有任务在运行',
+    );
   }
   // The UI conversation, not an individual agent run, defines continuity.
   // The current command is already visible in chat and is excluded by the
   // builder; prior user/assistant turns are carried into the new loop.
-  const conversationHistory = buildConversationMessages(
-    getMessages(),
-    command,
-    getSettings().maxConversationHistoryTurns,
-  );
+  const conversationHistory = options.conversationMode === 'ISOLATED'
+    ? []
+    : buildConversationMessages(
+        getMessages(),
+        command,
+        getSettings().maxConversationHistoryTurns,
+      );
   _stopped = false;
   _pendingUserMessages = [];
   _pendingInferenceUsage = null;
@@ -1631,7 +1676,18 @@ export async function processCommand(command: string): Promise<void> {
   setAgentBusy(true);
   // Open a new OTel trace for this request: every node below (prepare steps,
   // per-step thinking / action / observation, finish) carries the same traceId.
-  const traceId = beginTrace({ command });
+  const startedAtMs = Date.now();
+  const startedAt = new Date(startedAtMs).toISOString();
+  const traceId = beginTrace({ command, source: options.source ?? 'CHAT' });
+  try {
+    options.onTraceStarted?.({ traceId, startedAt });
+  } catch (error) {
+    // Observers mirror lifecycle state to external consumers. They must not
+    // be able to strand the Agent runtime after the trace has started.
+    logEvent('lifecycle.observer_error', {
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
   // Todo list for this request: goal + tasks persisted to
   // tasklogs/todo-<traceId>.json (adb-pullable), updated via todo_update.
   _todoList = new TodoList();
@@ -1683,14 +1739,14 @@ export async function processCommand(command: string): Promise<void> {
       console.log('[HEARTBEAT] js alive');
     }, 5000),
   );
-  const startedAt = Date.now();
-
-  _resumableTask = { task: command, steps: [], startedAt };
+  _resumableTask = { task: command, steps: [], startedAt: startedAtMs };
   _saveResumableTask(_resumableTask);
 
-  let outcome: SessionOutcome = 'complete';
+  let outcome: CommandOutcome = 'complete';
   let actions: string[] = [];
   let summary = '';
+  let stepCount = 0;
+  let actionCount = 0;
 
   try {
     const result = await runAgentLoop(command, conversationHistory);
@@ -1733,6 +1789,9 @@ export async function processCommand(command: string): Promise<void> {
       /* ignore */
     }
     cancelRiskConfirmNotification();
+    const finalAgentState = getAgentState();
+    stepCount = Math.max(finalAgentState.currentStep, _otelStep);
+    actionCount = Math.max(finalAgentState.actionCount, actions.length);
     try {
       agentStopped();
     } catch {
@@ -1748,9 +1807,9 @@ export async function processCommand(command: string): Promise<void> {
       endSpan(_otelActionSpanId, outcome === 'error' ? 'error' : 'ok');
       _otelActionSpanId = null;
     }
-    finalizeTodoFile(outcome === 'error' ? 'error' : outcome);
+    finalizeTodoFile(outcome === 'complete' || outcome === 'stopped' ? outcome : 'error');
     _todoList = null;
-    endTrace(outcome === 'error' ? 'error' : 'ok', {
+    endTrace(outcome === 'complete' || outcome === 'stopped' ? 'ok' : 'error', {
       outcome,
       actions: actions.length,
       summary: typeof summary === 'string' && summary.length > 200
@@ -1774,7 +1833,26 @@ export async function processCommand(command: string): Promise<void> {
   // messages while this run was still active.
   addMessage('agent', 'text', summary || '完成。');
   const taskTokens = getTaskTokens();
-  addSession(command, actions, outcome, summary, Date.now() - startedAt, taskTokens);
+  const finishedAtMs = Date.now();
+  addSession(
+    command,
+    actions,
+    sessionOutcome(outcome),
+    summary,
+    finishedAtMs - startedAtMs,
+    taskTokens,
+  );
+
+  const result = createCommandExecutionResult({
+    outcome,
+    summary,
+    traceId,
+    startedAtMs,
+    finishedAtMs,
+    stepCount,
+    actionCount,
+    tokens: taskTokens,
+  });
 
   // Inputs arriving while Stop was unwinding start only after the old task's
   // final response and session record are complete, preserving chronology.
@@ -1782,6 +1860,7 @@ export async function processCommand(command: string): Promise<void> {
     const queued = _commandsQueuedAfterStop.splice(0);
     void processCommand(queued.join('\n'));
   }
+  return result;
 }
 
 function isSummaryAbortError(err: unknown): boolean {
@@ -1796,7 +1875,7 @@ function isSummaryAbortError(err: unknown): boolean {
 
 interface LoopResult {
   actions: string[];
-  outcome: SessionOutcome;
+  outcome: CommandOutcome;
   summary: string;
 }
 
@@ -2004,7 +2083,7 @@ async function runRealAgentLoop(
 
   const actions: string[] = [];
   let finalSummary: string | null = null;
-  let outcome: SessionOutcome = 'complete';
+  let outcome: CommandOutcome = 'complete';
   let lastActionEvent: { result?: unknown } | null = null;
   let lastActionTool: string | null = null;
 
@@ -2152,7 +2231,7 @@ async function runRealAgentLoop(
       backfillLastAction();
       logEvent('finish', { outcome: 'timeout' });
       finalSummary = 'Timed out.';
-      outcome = 'error';
+      outcome = 'timed_out';
     }
   }
 
@@ -2324,7 +2403,7 @@ async function runRealPlannerLoop(
 
   const actions: string[] = [];
   let finalSummary: string | null = null;
-  let outcome: SessionOutcome = 'complete';
+  let outcome: CommandOutcome = 'complete';
   let totalSubtasks = 0;
   let lastActionEvent: { result?: unknown } | null = null;
   let lastActionTool: string | null = null;
@@ -2881,7 +2960,7 @@ async function runStubAgentLoop(
   let stepsTaken = 0;
   const actions: string[] = [];
   let finalResponse: string | null = null;
-  let outcome: SessionOutcome = 'complete';
+  let outcome: CommandOutcome = 'complete';
 
   for (const step of steps) {
     if (_stopped) {

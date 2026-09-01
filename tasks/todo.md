@@ -4,7 +4,7 @@
 
 - [x] 用户批准 `tasks/plan.md`，进入实施阶段（2026-09-01）。
 - [x] Task 1 已完成：固化跨端评测契约与 Fixture。
-- [ ] 当前任务：Task 5——扩展 `processCommand` 结构化执行契约。
+- [ ] 当前任务：Task 6——实现 evaluation 执行隔离与交互策略。
 - [ ] Android/RN Task 2—7 暂缓；PC 端先基于共享 Fixture 和 Fake ADB 完成可测试边界，真机闭环阶段再接入普通 APK。
 
 ## 阶段 A：契约与 Android/RN 单样本闭环
@@ -80,9 +80,11 @@
 **描述：** 以向后兼容的可选参数扩展命令入口，返回完整结果并提供 trace 生命周期观察点，默认聊天调用语义不变。
 
 **验收标准：**
-- [ ] 现有 `processCommand(command)` 调用无需修改且聊天回归测试通过。
-- [ ] 结果包含 outcome、完整 summary、traceId、时间、步数、动作数和本次 Token。
-- [ ] 并发、停止、异常和超时均映射为明确结果。
+- [x] 现有 `processCommand(command)` 调用无需修改且聊天回归测试通过。
+- [x] 结果包含 outcome、完整 summary、traceId、时间、步数、动作数和本次 Token。
+- [x] 并发、停止、异常和超时均映射为明确结果。
+
+**状态：** [x] 已完成（2026-09-01）；命令入口返回版本化结构结果并同步暴露 Trace 生命周期，聊天并发语义保持兼容，评测并发返回稳定错误码，AgentLoop 超时独立映射为 `timed_out`。
 
 **验证：** `cd guidedog-agent && npm run typecheck && npm test -- --runInBand --forceExit`
 
