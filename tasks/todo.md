@@ -4,8 +4,7 @@
 
 - [x] 用户批准 `tasks/plan.md`，进入实施阶段（2026-09-01）。
 - [x] Task 1 已完成：固化跨端评测契约与 Fixture。
-- [x] Task 2 已完成：增加 evaluation Build Type。
-- [ ] 当前任务：Task 3——实现 Kotlin 请求存储。
+- [ ] 当前任务：Task 2——增加 evaluation Build Type。
 
 ## 阶段 A：契约与 Android/RN 单样本闭环
 
@@ -29,9 +28,9 @@
 **描述：** 通过 Expo 配置插件增加同 `applicationId` 的 `evaluation` Build Type、`BuildConfig.EVALUATION_ENABLED` 和构建内评测模式标识，普通构建保持关闭。
 
 **验收标准：**
-- [x] `evaluation` 继承 release 行为、使用兼容签名且无 `applicationIdSuffix`。
-- [x] debug/release 的 `EVALUATION_ENABLED=false`，仅 evaluation 为 `true`。
-- [x] Expo prebuild 后配置可重复生成，不依赖手改生成文件。
+- [ ] `evaluation` 继承 release 行为、使用兼容签名且无 `applicationIdSuffix`。
+- [ ] debug/release 的 `EVALUATION_ENABLED=false`，仅 evaluation 为 `true`。
+- [ ] Expo prebuild 后配置可重复生成，不依赖手改生成文件。
 
 **验证：** `cd guidedog-agent/android && NODE_ENV=production ./gradlew :app:assembleEvaluation :app:assembleRelease`
 
