@@ -6,16 +6,19 @@ import { createApp } from './app.js';
 import { AdbClient } from '../adb/adbClient.js';
 import { NodeProcessAdapter } from '../adb/processAdapter.js';
 import { AdbEvaluationRuntime } from './adbRuntime.js';
+import { EvidenceCollector } from '../evidence/collector.js';
 import { DatasetCatalog } from './datasetCatalog.js';
 import { MockEvaluationRuntime } from './mockRuntime.js';
 import { RunManager } from './runManager.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const datasets = new DatasetCatalog(join(root, 'datasets'));
+const dataRoot = process.env.DOUPAO_EVALUATOR_DATA_DIR ?? join(root, '.data');
+const adb = new AdbClient(new NodeProcessAdapter());
 const runtime = process.env.DOUPAO_EVALUATOR_RUNTIME === 'mock'
   ? new MockEvaluationRuntime()
-  : new AdbEvaluationRuntime(new AdbClient(new NodeProcessAdapter()));
-const runs = new RunManager(process.env.DOUPAO_EVALUATOR_DATA_DIR ?? join(root, '.data'), datasets, runtime);
+  : new AdbEvaluationRuntime(adb, undefined, new EvidenceCollector(adb, dataRoot));
+const runs = new RunManager(dataRoot, datasets, runtime);
 const app = createApp({ datasets, runtime, runs });
 const dist = join(root, 'dist');
 try {

@@ -6,6 +6,12 @@ export interface SampleExecution {
   traceId?: string;
   tokens?: { prompt: number; completion: number; total: number; cached?: number | undefined };
   verdict: Extract<SampleRun['state'], 'PASSED' | 'FAILED' | 'BLOCKED' | 'INFRA_ERROR' | 'TIMED_OUT' | 'CANCELLED'>;
+  requestId?: string;
+  evidence?: {
+    collectedAt: string;
+    files: { request: string; status: string; otel?: string; todo?: string };
+    warnings: string[];
+  };
 }
 
 export interface SampleExecutionContext {

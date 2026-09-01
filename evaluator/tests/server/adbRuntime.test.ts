@@ -4,6 +4,7 @@ import type { EvaluationRunner } from '../../src/adb/evaluationRunner.js';
 import { hashEvalRequest, type EvalRequestV1, type EvalStatusV1 } from '../../src/contracts/evaluation.js';
 import { evaluationSampleSchema } from '../../src/datasets/schema.js';
 import { AdbEvaluationRuntime } from '../../src/server/adbRuntime.js';
+import type { EvidenceCollector } from '../../src/evidence/collector.js';
 
 describe('AdbEvaluationRuntime', () => {
   it('只将安装了兼容评测接口的真机标记为就绪', async () => {
@@ -50,7 +51,12 @@ describe('AdbEvaluationRuntime', () => {
         return { ...completed, requestId: request.requestId };
       }),
     } as unknown as EvaluationRunner;
-    const runtime = new AdbEvaluationRuntime({} as AdbClient, runner);
+    const collector = { collect: vi.fn().mockResolvedValue({
+      collectedAt: '2026-09-02T00:00:03.000Z',
+      files: { request: 'raw/request.json', status: 'raw/status.json', otel: 'raw/otel.jsonl' },
+      warnings: [],
+    }) } as unknown as EvidenceCollector;
+    const runtime = new AdbEvaluationRuntime({} as AdbClient, runner, collector);
     const sample = evaluationSampleSchema.parse({
       id: 'answer-time',
       instruction: '现在几点？',
@@ -62,7 +68,12 @@ describe('AdbEvaluationRuntime', () => {
       defaultTimeoutMs: 30_000,
     }, new AbortController().signal);
 
-    expect(result).toMatchObject({ verdict: 'PASSED', summary: '当前时间为 00:00。', traceId: 'a'.repeat(32) });
+    expect(result).toMatchObject({
+      verdict: 'PASSED', summary: '当前时间为 00:00。', traceId: 'a'.repeat(32),
+      requestId: expect.stringMatching(/^req-/),
+      evidence: { files: { request: 'raw/request.json', status: 'raw/status.json' }, warnings: [] },
+    });
+    expect(collector.collect).toHaveBeenCalledWith('serial-1', submitted, expect.objectContaining({ state: 'COMPLETED' }));
     expect(submitted).toMatchObject({ runId: 'run-test', sampleId: 'answer-time', timeoutMs: 30_000 });
     expect(submitted?.requestHash).toBe(hashEvalRequest({
       schemaVersion: 1,

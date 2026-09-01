@@ -88,7 +88,9 @@ export class RunManager {
         sample.phase = 'DONE';
         sample.summary = result.summary;
         sample.traceId = result.traceId;
+        sample.requestId = result.requestId;
         sample.tokens = result.tokens;
+        sample.evidence = result.evidence;
       } catch (error) {
         sample.state = controller.signal.aborted ? 'CANCELLED' : 'INFRA_ERROR';
         sample.phase = 'DONE';

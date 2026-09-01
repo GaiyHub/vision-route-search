@@ -4,13 +4,18 @@ import { EvaluationRunner } from '../adb/evaluationRunner.js';
 import { evalRequestV1Schema, hashEvalRequest, type EvalStatusV1 } from '../contracts/evaluation.js';
 import type { EvaluationSample } from '../datasets/schema.js';
 import type { DeviceInfo } from './apiTypes.js';
+import type { EvidenceCollector } from '../evidence/collector.js';
 import type { EvaluationRuntime, SampleExecution, SampleExecutionContext } from './runtime.js';
 
 export class AdbEvaluationRuntime implements EvaluationRuntime {
   readonly source = 'ADB' as const;
   private readonly runner: EvaluationRunner;
 
-  constructor(private readonly adb: AdbClient, runner?: EvaluationRunner) {
+  constructor(
+    private readonly adb: AdbClient,
+    runner?: EvaluationRunner,
+    private readonly evidenceCollector?: EvidenceCollector,
+  ) {
     this.runner = runner ?? new EvaluationRunner(adb);
   }
 
@@ -65,7 +70,19 @@ export class AdbEvaluationRuntime implements EvaluationRuntime {
       ...requestWithoutHash,
       requestHash: hashEvalRequest(requestWithoutHash),
     });
-    return mapStatus(await this.runner.run(context.deviceSerial, request, signal));
+    const status = await this.runner.run(context.deviceSerial, request, signal);
+    const evidence = await this.evidenceCollector?.collect(context.deviceSerial, request, status);
+    return {
+      ...mapStatus(status),
+      requestId: request.requestId,
+      ...(evidence ? {
+        evidence: {
+          collectedAt: evidence.collectedAt,
+          files: evidence.files,
+          warnings: evidence.warnings,
+        },
+      } : {}),
+    };
   }
 }
 

@@ -21,7 +21,15 @@ export const sampleRunSchema = z.object({
   durationMs: z.number().int().nonnegative().optional(),
   summary: z.string().optional(),
   traceId: z.string().optional(),
+  requestId: z.string().optional(),
   tokens: z.object({ prompt: z.number(), completion: z.number(), total: z.number(), cached: z.number().optional() }).optional(),
+  evidence: z.object({
+    collectedAt: z.string(),
+    files: z.object({
+      request: z.string(), status: z.string(), otel: z.string().optional(), todo: z.string().optional(),
+    }).strict(),
+    warnings: z.array(z.string()),
+  }).strict().optional(),
 }).strict();
 
 export const evaluationRunSchema = z.object({
