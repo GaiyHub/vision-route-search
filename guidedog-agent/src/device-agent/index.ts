@@ -18,6 +18,7 @@ export type {
   ModelContent,
   ModelMessage,
   ModelResponse,
+  ModelTraceEvent,
   LLMProviderInterface,
   UseAgentState,
   ChatMessage,

@@ -139,6 +139,41 @@ describe('unified request trace', () => {
     });
   });
 
+  it('records evaluation model input and output on the model span', async () => {
+    const traceId = beginTrace({ command: '查找医院' });
+    recordCompletedSpan(
+      'model.chat',
+      500,
+      'ok',
+      {
+        model: 'doubao', provider: 'openai_compatible', remote: true, attempt: 1,
+        request: {
+          messages: [{ role: 'user', content: [{ type: 'text', text: '查找医院' }] }],
+          tools: [{ name: 'ui_inspect', description: '读取界面', parameters: { type: 'object' } }],
+        },
+      },
+      {
+        inputTokens: 100, outputTokens: 20, cachedTokens: 80,
+        response: { content: [{ type: 'tool_call', id: 'call-1', name: 'ui_inspect', arguments: {} }], finishReason: 'tool_call' },
+        finishReason: 'tool_call',
+      },
+    );
+    endTrace('ok', { outcome: 'complete', summary: '完成' });
+    await flush(traceId);
+
+    const content = [...files.entries()].find(([uri]) =>
+      uri.includes(`/tasklogs/otel-${traceId}.jsonl`),
+    )?.[1] ?? '';
+    const modelSpan = JSON.parse(content.trim().split('\n')[0]);
+    expect(JSON.parse(modelSpan.attributes['gen_ai.input.messages'])).toEqual([
+      { role: 'user', content: [{ type: 'text', text: '查找医院' }] },
+    ]);
+    expect(JSON.parse(modelSpan.attributes['gen_ai.output.messages'])).toMatchObject({
+      finishReason: 'tool_call',
+    });
+    expect(modelSpan.attributes['gen_ai.tool.definitions']).toContain('ui_inspect');
+  });
+
   it('routes evaluation traces only to the request artifact directory', async () => {
     const outputDirectory = 'file:///storage/emulated/0/Android/data/com.watchdog.agent/files/'
       + 'evaluation/run-1/sample-1/request-1';

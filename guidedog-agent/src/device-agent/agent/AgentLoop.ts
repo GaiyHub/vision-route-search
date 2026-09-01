@@ -5,6 +5,7 @@ import type {
   ModelContent,
   ModelMessage,
   ModelResponse,
+  ModelTraceEvent,
   ScreenshotImage,
   ToolCall,
   ToolResult,
@@ -69,6 +70,14 @@ function errorCode(error: unknown): string {
   return error && typeof error === 'object' && 'code' in error
     ? String((error as { code?: unknown }).code ?? '')
     : '';
+}
+
+function modelTraceImage(image: ScreenshotImage): ModelTraceEvent['request']['image'] {
+  const { base64, ...metadata } = image;
+  return {
+    ...metadata,
+    ...(base64 ? { base64Bytes: Math.floor(base64.length * 0.75) } : {}),
+  };
 }
 
 /**
@@ -1211,12 +1220,26 @@ export class AgentLoop {
               ])
             : inference;
         const result = (await Promise.race([timedInference, abortWaiter])) as ModelResponse;
+        const durationMs = Date.now() - attemptStartedAt;
+        this.emitModelTrace({
+          round,
+          step: this._step,
+          attempt: attempt + 1,
+          durationMs,
+          status: 'ok',
+          request: {
+            messages: structuredMessages,
+            tools: this.toolkit.tools,
+            ...(attachedImage ? { image: modelTraceImage(attachedImage) } : {}),
+          },
+          response: result,
+        });
         this.emitTimingDiagnostic({
           stage: 'inference_attempt',
           round,
           step: this._step,
           attempt: attempt + 1,
-          durationMs: Date.now() - attemptStartedAt,
+          durationMs,
           vision: Boolean(attachedImage),
           status: 'ok',
         });
@@ -1228,12 +1251,25 @@ export class AgentLoop {
       } catch (err) {
         if (this.aborted) throw new Error('inference aborted');
         lastError = err instanceof Error ? err : new Error(String(err));
+        const durationMs = Date.now() - attemptStartedAt;
+        this.emitModelTrace({
+          round,
+          step: this._step,
+          attempt: attempt + 1,
+          durationMs,
+          status: 'error',
+          request: {
+            messages: structuredMessages,
+            tools: this.toolkit.tools,
+          },
+          error: { name: lastError.name, message: lastError.message },
+        });
         this.emitTimingDiagnostic({
           stage: 'inference_attempt',
           round,
           step: this._step,
           attempt: attempt + 1,
-          durationMs: Date.now() - attemptStartedAt,
+          durationMs,
           status: 'error',
           errorName: lastError.name,
         });
@@ -1252,6 +1288,14 @@ export class AgentLoop {
     // to filter even when task-file persistence is unavailable.
     // eslint-disable-next-line no-console
     console.log(`[TIMING] ${JSON.stringify(event)}`);
+  }
+
+  private emitModelTrace(event: ModelTraceEvent): void {
+    try {
+      this.options.onModelTrace?.(event);
+    } catch {
+      // Diagnostics must never affect the agent loop.
+    }
   }
 
   /**

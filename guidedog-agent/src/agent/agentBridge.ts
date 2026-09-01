@@ -27,7 +27,7 @@ import {
   type MessageRole,
 } from '../store/chatStore';
 import { buildConversationMessages } from './conversationContext';
-import type { ConversationMessage, ToolRiskGateRequest } from '../device-agent/types';
+import type { ConversationMessage, ModelTraceEvent, ToolRiskGateRequest } from '../device-agent/types';
 import { sanitizeRiskReason } from '../device-agent/tools/ToolRiskInterceptor';
 import {
   cancelPendingNotification,
@@ -1359,6 +1359,7 @@ let _pendingInferenceUsage: {
   outputTokens: number;
   cachedTokens: number;
 } | null = null;
+let _pendingModelTrace: ModelTraceEvent | null = null;
 
 /** Persist loop latency using spans for operations and events for checkpoints. */
 function recordTimingDiagnostic(event: Record<string, unknown>): void {
@@ -1373,6 +1374,7 @@ function recordTimingDiagnostic(event: Record<string, unknown>): void {
           ? 'openai_compatible'
           : settings.cloudModel.toLowerCase().startsWith('claude') ? 'anthropic' : 'openai'
       : 'doupao.local';
+    const modelTrace = _pendingModelTrace;
     recordCompletedSpan(
       'model.chat',
       event.durationMs,
@@ -1385,10 +1387,18 @@ function recordTimingDiagnostic(event: Record<string, unknown>): void {
         round: event.round,
         step: event.step,
         vision: event.vision,
+        ...(modelTrace ? { request: modelTrace.request } : {}),
       },
-      _pendingInferenceUsage ?? {},
+      {
+        ...(_pendingInferenceUsage ?? {}),
+        ...(modelTrace?.response ? {
+          response: modelTrace.response,
+          finishReason: modelTrace.response.finishReason,
+        } : {}),
+      },
     );
     _pendingInferenceUsage = null;
+    _pendingModelTrace = null;
     return;
   }
   appendTaskLog('timing', event);
@@ -1732,6 +1742,7 @@ export async function processCommand(
   _stopped = false;
   _pendingUserMessages = [];
   _pendingInferenceUsage = null;
+  _pendingModelTrace = null;
   resetTaskInteractionKind();
   // A fresh task starts with a clean risk-gate history: a decision made in
   // task A (especially a rejection) must never short-circuit task B.
@@ -2082,6 +2093,7 @@ async function runRealAgentLoop(
       onCircuitBreakerEvent?: (event: Record<string, unknown>) => void;
       onCacheDiagnostic?: (event: Record<string, unknown>) => void;
       onTimingDiagnostic?: (event: Record<string, unknown>) => void;
+      onModelTrace?: (event: ModelTraceEvent) => void;
       onContextCompressionStateChange?: (state: 'compressing' | 'idle') => void;
       onContextCompressed?: (summary: string) => void;
       context?: Record<string, string>;
@@ -2170,6 +2182,9 @@ async function runRealAgentLoop(
     onCircuitBreakerEvent: (event) => appendTaskLog('circuit_breaker', event),
     onCacheDiagnostic: (event) => appendTaskLog('cache_diagnostic', event),
     onTimingDiagnostic: recordTimingDiagnostic,
+    ...(isEvaluationRun() ? {
+      onModelTrace: (event: ModelTraceEvent) => { _pendingModelTrace = event; },
+    } : {}),
     onContextCompressionStateChange: (state) => {
       updateExecutionStatus(state === 'compressing' ? '正在压缩会话' : '');
     },
@@ -2426,6 +2441,7 @@ async function runRealPlannerLoop(
       onCircuitBreakerEvent?: (event: Record<string, unknown>) => void;
       onCacheDiagnostic?: (event: Record<string, unknown>) => void;
       onTimingDiagnostic?: (event: Record<string, unknown>) => void;
+      onModelTrace?: (event: ModelTraceEvent) => void;
       onContextCompressionStateChange?: (state: 'compressing' | 'idle') => void;
       onContextCompressed?: (summary: string) => void;
       context?: Record<string, string>;
@@ -2507,6 +2523,9 @@ async function runRealPlannerLoop(
     onCircuitBreakerEvent: (event) => appendTaskLog('circuit_breaker', event),
     onCacheDiagnostic: (event) => appendTaskLog('cache_diagnostic', event),
     onTimingDiagnostic: recordTimingDiagnostic,
+    ...(isEvaluationRun() ? {
+      onModelTrace: (event: ModelTraceEvent) => { _pendingModelTrace = event; },
+    } : {}),
     onContextCompressionStateChange: (state) => {
       updateExecutionStatus(state === 'compressing' ? '正在压缩会话' : '');
     },

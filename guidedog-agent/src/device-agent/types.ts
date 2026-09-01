@@ -20,6 +20,12 @@ export interface AgentOptions {
   onCacheDiagnostic?: (event: Record<string, unknown>) => void;
   /** Privacy-safe per-round latency diagnostics. Never includes prompts, tool arguments, or results. */
   onTimingDiagnostic?: (event: Record<string, unknown>) => void;
+  /**
+   * Full model request/response trace hook for an explicitly isolated
+   * diagnostic execution. Hosts must not enable this for ordinary chat.
+   * Screenshot bytes are represented by metadata/path only, never base64.
+   */
+  onModelTrace?: (event: ModelTraceEvent) => void;
   /** Maximum number of observe-think-act cycles before giving up. Default: 20. */
   maxSteps?: number;
   /** Milliseconds to wait between sequential UI-changing calls in one model response. Default: 500. */
@@ -491,6 +497,21 @@ export interface ModelMessage {
 export interface ModelResponse {
   content: Array<Extract<ModelContent, { type: 'text' | 'tool_call' }>>;
   finishReason?: 'stop' | 'tool_call' | 'length' | 'error';
+}
+
+export interface ModelTraceEvent {
+  round: number;
+  step: number;
+  attempt: number;
+  durationMs: number;
+  status: 'ok' | 'error';
+  request: {
+    messages: ModelMessage[];
+    tools: Tool[];
+    image?: Omit<ScreenshotImage, 'base64'> & { base64Bytes?: number };
+  };
+  response?: ModelResponse;
+  error?: { name: string; message: string };
 }
 
 /**

@@ -91,6 +91,14 @@ function jsonAttribute(value: unknown): string {
   }
 }
 
+function rawJsonAttribute(value: unknown): string {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return JSON.stringify(String(value));
+  }
+}
+
 function attributeValue(value: unknown): AttributeValue | null {
   if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
     return bounded(value) as AttributeValue;
@@ -175,6 +183,16 @@ function startDefinition(
     if (typeof input.round === 'number') attributes['doupao.agent.round'] = input.round;
     if (typeof input.step === 'number') attributes['doupao.agent.step'] = input.step;
     if (typeof input.vision === 'boolean') attributes['doupao.inference.vision'] = input.vision;
+    const request = input.request as Record<string, unknown> | undefined;
+    if (request?.messages !== undefined) {
+      attributes['gen_ai.input.messages'] = rawJsonAttribute(request.messages);
+    }
+    if (request?.tools !== undefined) {
+      attributes['gen_ai.tool.definitions'] = rawJsonAttribute(request.tools);
+    }
+    if (request?.image !== undefined) {
+      attributes['doupao.inference.image'] = rawJsonAttribute(request.image);
+    }
     return {
       name: `chat ${model}`,
       kind: input.remote === false ? 'INTERNAL' : 'CLIENT',
@@ -218,6 +236,9 @@ function endAttributes(span: OpenSpan, output: Record<string, unknown>): Attribu
     }
     if (typeof output.finishReason === 'string') {
       result['gen_ai.response.finish_reasons'] = [output.finishReason];
+    }
+    if (output.response !== undefined) {
+      result['gen_ai.output.messages'] = rawJsonAttribute(output.response);
     }
     return result;
   }

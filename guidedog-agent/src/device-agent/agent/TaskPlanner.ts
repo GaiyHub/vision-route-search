@@ -211,8 +211,59 @@ export class TaskPlanner {
     provider: LLMProviderInterface,
   ): Promise<SubTask[]> {
     const prompt = `${DECOMPOSE_PROMPT}\n\n任务: ${task}\n\n子任务:`;
-    const response = await provider.generate(prompt);
-    return this.parseSubTasks(response);
+    const startedAt = Date.now();
+    try {
+      const response = await provider.generate(prompt);
+      const durationMs = Date.now() - startedAt;
+      this.emitModelTrace({
+        round: 0,
+        step: 0,
+        attempt: 1,
+        durationMs,
+        status: 'ok',
+        request: {
+          messages: [{ role: 'user', content: [{ type: 'text', text: prompt }] }],
+          tools: [],
+        },
+        response: {
+          content: [{ type: 'text', text: response }],
+          finishReason: 'stop',
+        },
+      });
+      this.options.onTimingDiagnostic?.({
+        stage: 'inference_attempt', round: 0, step: 0, attempt: 1,
+        durationMs, vision: false, status: 'ok',
+      });
+      return this.parseSubTasks(response);
+    } catch (error) {
+      const normalized = error instanceof Error ? error : new Error(String(error));
+      const durationMs = Date.now() - startedAt;
+      this.emitModelTrace({
+        round: 0,
+        step: 0,
+        attempt: 1,
+        durationMs,
+        status: 'error',
+        request: {
+          messages: [{ role: 'user', content: [{ type: 'text', text: prompt }] }],
+          tools: [],
+        },
+        error: { name: normalized.name, message: normalized.message },
+      });
+      this.options.onTimingDiagnostic?.({
+        stage: 'inference_attempt', round: 0, step: 0, attempt: 1,
+        durationMs, vision: false, status: 'error', errorName: normalized.name,
+      });
+      throw error;
+    }
+  }
+
+  private emitModelTrace(event: Parameters<NonNullable<AgentOptions['onModelTrace']>>[0]): void {
+    try {
+      this.options.onModelTrace?.(event);
+    } catch {
+      // Diagnostics must never affect planning.
+    }
   }
 
   private parseSubTasks(response: string): SubTask[] {
