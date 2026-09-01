@@ -50,6 +50,8 @@ let _rootSpanId: string | null = null;
 const _openSpans = new Map<string, OpenSpan>();
 let _lines: string[] = [];
 let _flushQueue: Promise<void> = Promise.resolve();
+const _traceOutputDirectories = new Map<string, string>();
+const _closedTraces = new Set<string>();
 
 function randomHex(length: number): string {
   let out = '';
@@ -224,8 +226,14 @@ function emit(record: Record<string, unknown>, traceId = _traceId): void {
 }
 
 /** Start one local GenAI agent invocation trace. */
-export function beginTrace(attributes: Record<string, unknown> = {}): string {
+export function beginTrace(
+  attributes: Record<string, unknown> = {},
+  options: { outputDirectory?: string } = {},
+): string {
   const traceId = randomHex(32);
+  if (options.outputDirectory) {
+    _traceOutputDirectories.set(traceId, options.outputDirectory.replace(/\/+$/, '') + '/');
+  }
   _traceId = traceId;
   _lines = [];
   _openSpans.clear();
@@ -327,6 +335,7 @@ export function endTrace(
   if (_rootSpanId) endSpan(_rootSpanId, status, output);
   _rootSpanId = null;
   _traceId = null;
+  _closedTraces.add(traceId);
   void flush(traceId);
 }
 
@@ -340,9 +349,15 @@ export async function flush(traceId: string | null = _traceId): Promise<void> {
   _lines = [];
   const fileName = `otel-${traceId}.jsonl`;
   const content = `${pending.join('\n')}\n`;
+  const outputDirectory = _traceOutputDirectories.get(traceId);
 
   _flushQueue = _flushQueue.then(async () => {
     try {
+      if (outputDirectory) {
+        await FileSystem.makeDirectoryAsync(outputDirectory, { intermediates: true }).catch(() => {});
+        await appendText(outputDirectory + fileName, content);
+        return;
+      }
       const internalDir = `${FileSystem.documentDirectory ?? ''}tasklogs/`;
       await FileSystem.makeDirectoryAsync(internalDir, { intermediates: true }).catch(() => {});
       await appendText(internalDir + fileName, content);
@@ -359,6 +374,10 @@ export async function flush(traceId: string | null = _traceId): Promise<void> {
     }
   });
   await _flushQueue;
+  if (_closedTraces.has(traceId)) {
+    _closedTraces.delete(traceId);
+    _traceOutputDirectories.delete(traceId);
+  }
 }
 
 async function appendText(uri: string, content: string): Promise<void> {

@@ -26,6 +26,7 @@ import { initModel } from './src/agent/modelManager';
 import { restoreWatchdogs } from './src/agent/watchdogBridge';
 import { BrowserHost } from './src/browser';
 import { refreshModelCatalogOnce } from './src/modelCatalog/modelCatalog';
+import { startEvaluationBridge } from './src/evaluation/evaluationBridge';
 
 type AppState = 'loading' | 'onboarding' | 'main';
 type MainTab = 'chat' | 'history' | 'settings';
@@ -62,6 +63,7 @@ export default function App() {
   const currentProviderModeRef = useRef<'cloud' | 'local' | null>(null);
 
   useEffect(() => {
+    let stopEvaluationBridge: (() => void) | undefined;
     Promise.all([loadSettings(), isOnboardingComplete(), loadSkills()]).then(([settings, done]) => {
       setAppState(done ? 'main' : 'onboarding');
       currentModelRef.current = settings.model;
@@ -77,10 +79,12 @@ export default function App() {
       // Keep cached suggestions immediately usable, then refresh the public
       // catalog and the configured provider exactly once for this app launch.
       void refreshModelCatalogOnce(settings).catch(() => {});
+      stopEvaluationBridge = startEvaluationBridge();
     });
     // MIUI freezes background apps unless battery optimization is disabled —
     // ask once at startup so long agent runs survive going to background.
     requestBatteryExemption();
+    return () => stopEvaluationBridge?.();
   }, []);
 
   // Reinitialize the on-device LLM when the user changes the model in Settings.

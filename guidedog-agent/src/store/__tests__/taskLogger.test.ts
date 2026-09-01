@@ -138,4 +138,17 @@ describe('unified request trace', () => {
       },
     });
   });
+
+  it('routes evaluation traces only to the request artifact directory', async () => {
+    const outputDirectory = 'file:///storage/emulated/0/Android/data/com.watchdog.agent/files/'
+      + 'evaluation/run-1/sample-1/request-1';
+    const traceId = beginTrace(
+      { command: '评测任务', source: 'EVALUATION', requestId: 'request-1' },
+      { outputDirectory },
+    );
+    endTrace('ok', { outcome: 'complete', summary: '完成' });
+    await flush(traceId);
+
+    expect([...files.keys()]).toEqual([`${outputDirectory}/otel-${traceId}.jsonl`]);
+  });
 });

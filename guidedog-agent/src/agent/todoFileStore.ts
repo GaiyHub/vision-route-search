@@ -23,12 +23,18 @@ interface TodoFileState {
   updatedAt: number;
   outcome: string | null;
   todos: TodoItem[];
+  outputDirectory?: string;
 }
 
 let _state: TodoFileState | null = null;
+let _writeQueue: Promise<void> = Promise.resolve();
 
 /** Opens the todo file for a new user request. */
-export function beginTodoFile(traceId: string, goal: string): void {
+export function beginTodoFile(
+  traceId: string,
+  goal: string,
+  options: { outputDirectory?: string } = {},
+): void {
   _state = {
     traceId,
     goal,
@@ -36,6 +42,7 @@ export function beginTodoFile(traceId: string, goal: string): void {
     updatedAt: Date.now(),
     outcome: null,
     todos: [],
+    outputDirectory: options.outputDirectory,
   };
   void write();
 }
@@ -57,29 +64,44 @@ export function finalizeTodoFile(outcome: string): void {
   _state = null;
 }
 
+export async function flushTodoFile(): Promise<void> {
+  await _writeQueue;
+}
+
 async function write(): Promise<void> {
   const state = _state;
   if (!state) return;
   const fileName = `todo-${state.traceId}.json`;
   const content = JSON.stringify(state, null, 2);
-  try {
-    const internalDir = (FileSystem.documentDirectory ?? '') + 'tasklogs/';
-    await FileSystem.makeDirectoryAsync(internalDir, { intermediates: true }).catch(() => {});
-    await FileSystem.writeAsStringAsync(internalDir + fileName, content, {
-      encoding: FileSystem.EncodingType.UTF8,
-    });
-
-    // External files dir: pullable over adb without root / run-as.
-    const docDir = FileSystem.documentDirectory ?? '';
-    const pkg = docDir.split('/').filter(Boolean).find((part) => part.includes('.')) ?? '';
-    if (pkg) {
-      const externalDir = `/storage/emulated/0/Android/data/${pkg}/files/tasklogs/`;
-      await FileSystem.makeDirectoryAsync(externalDir, { intermediates: true }).catch(() => {});
-      await FileSystem.writeAsStringAsync(externalDir + fileName, content, {
+  _writeQueue = _writeQueue.then(async () => {
+    try {
+      if (state.outputDirectory) {
+        const directory = state.outputDirectory.replace(/\/+$/, '') + '/';
+        await FileSystem.makeDirectoryAsync(directory, { intermediates: true }).catch(() => {});
+        await FileSystem.writeAsStringAsync(directory + fileName, content, {
+          encoding: FileSystem.EncodingType.UTF8,
+        });
+        return;
+      }
+      const internalDir = (FileSystem.documentDirectory ?? '') + 'tasklogs/';
+      await FileSystem.makeDirectoryAsync(internalDir, { intermediates: true }).catch(() => {});
+      await FileSystem.writeAsStringAsync(internalDir + fileName, content, {
         encoding: FileSystem.EncodingType.UTF8,
       });
+
+      // External files dir: pullable over adb without root / run-as.
+      const docDir = FileSystem.documentDirectory ?? '';
+      const pkg = docDir.split('/').filter(Boolean).find((part) => part.includes('.')) ?? '';
+      if (pkg) {
+        const externalDir = `/storage/emulated/0/Android/data/${pkg}/files/tasklogs/`;
+        await FileSystem.makeDirectoryAsync(externalDir, { intermediates: true }).catch(() => {});
+        await FileSystem.writeAsStringAsync(externalDir + fileName, content, {
+          encoding: FileSystem.EncodingType.UTF8,
+        });
+      }
+    } catch {
+      // Todo persistence must never break the task flow.
     }
-  } catch {
-    // Todo persistence must never break the task flow.
-  }
+  });
+  await _writeQueue;
 }

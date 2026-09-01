@@ -84,7 +84,7 @@ import {
   createTodoUpdateHandler,
 } from '../device-agent/tools/TodoTool';
 import { READ_SKILL_TOOL_NAME } from '../device-agent/tools/SkillTool';
-import { beginTodoFile, finalizeTodoFile, saveTodos } from './todoFileStore';
+import { beginTodoFile, finalizeTodoFile, flushTodoFile, saveTodos } from './todoFileStore';
 import {
   requestUserConfirm,
   resolveUserConfirm,
@@ -166,6 +166,11 @@ let _blockedInteraction: CommandExecutionResult['blockedInteraction'];
 
 function isEvaluationRun(): boolean {
   return _activeExecutionPolicy?.source === 'EVALUATION';
+}
+
+function shouldPersistTodoArtifacts(): boolean {
+  return _activeExecutionPolicy?.persistTodoArtifacts === true
+    || Boolean(_activeExecutionPolicy?.evaluationContext?.artifactDirectory);
 }
 
 function addMessage(role: MessageRole, kind: MessageKind, text: string): void {
@@ -848,7 +853,7 @@ function buildTodoTools():
   const todoList = _todoList;
   if (!todoList) return undefined;
   const persist = (eventName: 'todo.create' | 'todo.update') => (items: ReturnType<TodoList['getItems']>) => {
-    if (!isEvaluationRun()) saveTodos(items);
+    if (shouldPersistTodoArtifacts()) saveTodos(items);
     logEvent(eventName, {
       count: items.length,
       completed: items.filter((item) => item.status === 'completed').length,
@@ -1731,7 +1736,18 @@ export async function processCommand(
   // per-step thinking / action / observation, finish) carries the same traceId.
   const startedAtMs = Date.now();
   const startedAt = new Date(startedAtMs).toISOString();
-  const traceId = beginTrace({ command, source: executionPolicy.source });
+  const evaluationContext = executionPolicy.evaluationContext;
+  const traceId = beginTrace({
+    command,
+    source: executionPolicy.source,
+    ...(evaluationContext ? {
+      requestId: evaluationContext.requestId,
+      runId: evaluationContext.runId,
+      sampleId: evaluationContext.sampleId,
+    } : {}),
+  }, {
+    outputDirectory: evaluationContext?.artifactDirectory,
+  });
   try {
     options.onTraceStarted?.({ traceId, startedAt });
   } catch (error) {
@@ -1744,7 +1760,11 @@ export async function processCommand(
   // Todo list for this request: goal + tasks persisted to
   // tasklogs/todo-<traceId>.json (adb-pullable), updated via todo_update.
   _todoList = new TodoList();
-  if (!isEvaluationRun()) beginTodoFile(traceId, command);
+  if (shouldPersistTodoArtifacts()) {
+    beginTodoFile(traceId, command, {
+      outputDirectory: evaluationContext?.artifactDirectory,
+    });
+  }
   _otelActionSpanId = null;
   _otelStep = 0;
 
@@ -1876,8 +1896,9 @@ export async function processCommand(
       endSpan(_otelActionSpanId, outcome === 'error' ? 'error' : 'ok');
       _otelActionSpanId = null;
     }
-    if (!isEvaluationRun()) {
+    if (shouldPersistTodoArtifacts()) {
       finalizeTodoFile(outcome === 'complete' || outcome === 'stopped' ? outcome : 'error');
+      await flushTodoFile();
     }
     _todoList = null;
     endTrace(outcome === 'complete' || outcome === 'stopped' ? 'ok' : 'error', {
@@ -2531,7 +2552,7 @@ async function runRealPlannerLoop(
       // now so the plan is in the todo file even before the LLM updates it.
       if (_todoList && !_todoList.isEmpty()) {
         const seeded = _todoList.getItems();
-        if (!isEvaluationRun()) saveTodos(seeded);
+        if (shouldPersistTodoArtifacts()) saveTodos(seeded);
         logEvent('todo.update', { count: seeded.length, source: 'planner' });
       }
       updateExecutionThinking(`Plan:\n${planText}`);

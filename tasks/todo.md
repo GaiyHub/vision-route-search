@@ -4,7 +4,7 @@
 
 - [x] 用户批准 `tasks/plan.md`，进入实施阶段（2026-09-01）。
 - [x] Task 1 已完成：固化跨端评测契约与 Fixture。
-- [ ] 当前任务：Task 7——实现 RN EvaluationBridge。
+- [ ] 当前任务：Checkpoint A——移动端单样本真机闭环。
 - [ ] Android/RN Task 2—7 暂缓；PC 端先基于共享 Fixture 和 Fake ADB 完成可测试边界，真机闭环阶段再接入普通 APK。
 
 ## 阶段 A：契约与 Android/RN 单样本闭环
@@ -114,9 +114,11 @@
 **描述：** 消费 Native 请求、调用隔离 `processCommand`、写入 ACCEPTED/RUNNING/终态，并将 OTel/Todo flush 到 request 对应的独立 evaluation 目录。
 
 **验收标准：**
-- [ ] 冷启动、前台请求、重复事件和取消均只执行一次。
-- [ ] status、OTel 与 Todo 携带完整关联链，只写 request 对应的 evaluation 目录，不写普通 `tasklogs`。
+- [x] 冷启动、前台请求、重复事件和取消均只执行一次。
+- [x] status、OTel 与 Todo 携带完整关联链，只写 request 对应的 evaluation 目录，不写普通 `tasklogs`。
 - [ ] 一个复杂 UTF-8 指令可通过 ADB 获得结构化终态和完整 summary。
+
+**状态：** 实现已完成（2026-09-01）；RN Bridge 已接入 App 启动流程，覆盖请求串行消费、状态迁移、匹配取消、样本超时及终态前 Trace/Todo flush；全量测试与普通 release 构建通过，最终完成取决于 Checkpoint A 真机冒烟。
 
 **验证：** RN 测试、Android 构建和一条真机冒烟样本通过。
 

@@ -11,6 +11,7 @@ describe('resolveCommandExecutionPolicy', () => {
       persistGlobalTokens: true,
       persistResumableTask: true,
       persistTodoArtifacts: true,
+      evaluationContext: undefined,
     });
   });
 
@@ -29,6 +30,7 @@ describe('resolveCommandExecutionPolicy', () => {
       persistGlobalTokens: false,
       persistResumableTask: false,
       persistTodoArtifacts: false,
+      evaluationContext: undefined,
     });
   });
 });

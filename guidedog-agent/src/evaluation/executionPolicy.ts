@@ -4,6 +4,12 @@ export interface CommandExecutionOptions {
   completionPolicy?: 'ASK_USER' | 'AUTO_ACCEPT';
   interactionPolicy?: 'WAIT_FOR_USER' | 'BLOCK';
   onTraceStarted?: (event: { traceId: string; startedAt: string }) => void;
+  evaluationContext?: {
+    requestId: string;
+    runId: string;
+    sampleId: string;
+    artifactDirectory: string;
+  };
 }
 
 export interface CommandExecutionPolicy {
@@ -15,6 +21,7 @@ export interface CommandExecutionPolicy {
   persistGlobalTokens: boolean;
   persistResumableTask: boolean;
   persistTodoArtifacts: boolean;
+  evaluationContext?: CommandExecutionOptions['evaluationContext'];
 }
 
 /** Evaluation is safe-by-default even if a caller omits individual switches. */
@@ -31,5 +38,6 @@ export function resolveCommandExecutionPolicy(
     persistGlobalTokens: !evaluation,
     persistResumableTask: !evaluation,
     persistTodoArtifacts: !evaluation,
+    evaluationContext: evaluation ? options.evaluationContext : undefined,
   };
 }
