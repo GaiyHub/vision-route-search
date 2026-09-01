@@ -168,7 +168,7 @@
 
 **验收标准：** 每次调用显式 serial 且不经 Shell；重试复用不可变请求；Fake ADB 覆盖异常设备、冲突、超时与取消。
 
-**进度：** [x] PC 核心已完成（2026-09-01）：参数数组 Process Adapter、设备状态解析、显式 serial、Base64URL Intent、关联状态读取、有限幂等重试、超时取消与 Fake ADB；[ ] 待普通 APK 入口实现后补齐 API 版本/readiness 与真机验证。
+**进度：** [x] 已完成（2026-09-02）：参数数组 Process Adapter、设备状态解析、显式 serial、Base64URL Intent、关联状态读取、有限幂等重试与超时取消；真实 Runtime 可读取 Android/豆泡版本并校验受保护入口，当前真机已识别为 API v1 READY。
 
 **验证：** adb-runner Fake Process Adapter 集成测试通过。
 
@@ -182,7 +182,7 @@
 
 **验收标准：** `POST /api/runs` 可执行一个样本；`GET /api/runs/:runId` 可在刷新后恢复；错误体符合 `ApiErrorV1`。
 
-**进度：** [x] Mock 闭环已完成（2026-09-01）：设备/评测集 API、Run 创建/查询/取消、串行执行及文件持久化；[ ] 真机 Sample 待 APK 接口接入。
+**进度：** Mock 与真实 ADB Runtime 已接入（2026-09-02）：设备/评测集 API、Run 创建/查询/取消、串行执行及文件持久化保持统一契约；首条 PC 真机请求已送达 APK，因手机存在普通任务返回 `RUN_ALREADY_ACTIVE`，并已正确归类为 `INFRA_ERROR`，待设备空闲后完成成功态验收。
 
 **验证：** Fake ADB API 集成测试及一条真机 Sample 通过。
 

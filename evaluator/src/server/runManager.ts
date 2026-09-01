@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { DatasetCatalog } from './datasetCatalog.js';
-import type { EvaluationRuntime } from './mockRuntime.js';
+import type { EvaluationRuntime } from './runtime.js';
 import { evaluationRunSchema, type EvaluationRun, type SampleRun } from './apiTypes.js';
 import { readValidatedJson, writeJsonAtomic } from '../storage/atomicFile.js';
 
@@ -34,7 +34,7 @@ export class RunManager {
       datasetId: dataset.id,
       datasetName: dataset.name,
       deviceSerial: input.deviceSerial,
-      source: 'MOCK',
+      source: this.runtime.source,
       state: 'PENDING',
       createdAt: now,
       cancelRequested: false,
@@ -79,16 +79,22 @@ export class RunManager {
       sample.startedAt = new Date().toISOString();
       await writeJsonAtomic(this.path(run.runId), run);
       try {
-        const result = await this.runtime.execute(definition, controller.signal);
+        const result = await this.runtime.execute(definition, {
+          runId: run.runId,
+          deviceSerial: run.deviceSerial,
+          defaultTimeoutMs: dataset.defaults.timeoutMs,
+        }, controller.signal);
         sample.state = result.verdict;
         sample.phase = 'DONE';
         sample.summary = result.summary;
         sample.traceId = result.traceId;
         sample.tokens = result.tokens;
-      } catch {
-        sample.state = 'CANCELLED';
+      } catch (error) {
+        sample.state = controller.signal.aborted ? 'CANCELLED' : 'INFRA_ERROR';
         sample.phase = 'DONE';
-        sample.summary = '运行已由用户取消';
+        sample.summary = controller.signal.aborted
+          ? '运行已由用户取消'
+          : error instanceof Error ? error.message : '评测基础设施异常';
       }
       sample.finishedAt = new Date().toISOString();
       sample.durationMs = Date.parse(sample.finishedAt) - Date.parse(sample.startedAt);

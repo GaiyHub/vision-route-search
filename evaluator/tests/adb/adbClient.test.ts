@@ -63,4 +63,17 @@ describe('ADB 请求边界', () => {
     const denied = new AdbClient(new FakeProcessAdapter([{ exitCode: 1, stdout: '', stderr: 'Permission Denial: SecurityException' }]));
     await expect(denied.submit('serial-1', request)).rejects.toMatchObject({ code: 'EVALUATION_PERMISSION_DENIED' });
   });
+
+  it('读取设备与评测入口 readiness 元信息', async () => {
+    const adapter = new FakeProcessAdapter([
+      ok('13\n'),
+      ok('  versionCode=1\n  versionName=0.1.0\n'),
+      ok('ActivityInfo:\n  name=com.watchdog.agent.EvaluationEntryActivity\n  permission=android.permission.DUMP\n'),
+    ]);
+    const client = new AdbClient(adapter);
+    await expect(client.readAndroidVersion('serial-1')).resolves.toBe('13');
+    await expect(client.readPackageVersion('serial-1')).resolves.toBe('0.1.0');
+    await expect(client.readEvaluationApiVersion('serial-1')).resolves.toBe(1);
+    expect(adapter.requests.every((request) => request.args.slice(0, 2).join(' ') === '-s serial-1')).toBe(true);
+  });
 });

@@ -1,20 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import type { EvaluationSample } from '../datasets/schema.js';
 import type { DeviceInfo } from './apiTypes.js';
-
-export interface SampleExecution {
-  summary: string;
-  traceId: string;
-  tokens: { prompt: number; completion: number; total: number; cached: number };
-  verdict: 'PASSED' | 'FAILED' | 'BLOCKED';
-}
-
-export interface EvaluationRuntime {
-  listDevices(): Promise<DeviceInfo[]>;
-  execute(sample: EvaluationSample, signal: AbortSignal): Promise<SampleExecution>;
-}
+import type { EvaluationRuntime, SampleExecution } from './runtime.js';
 
 export class MockEvaluationRuntime implements EvaluationRuntime {
+  readonly source = 'MOCK' as const;
+
   constructor(private readonly phaseDelayMs = 350) {}
 
   async listDevices(): Promise<DeviceInfo[]> {
@@ -29,7 +20,7 @@ export class MockEvaluationRuntime implements EvaluationRuntime {
     }];
   }
 
-  async execute(sample: EvaluationSample, signal: AbortSignal): Promise<SampleExecution> {
+  async execute(sample: EvaluationSample, _context: unknown, signal: AbortSignal): Promise<SampleExecution> {
     await new Promise<void>((resolve, reject) => {
       const timer = setTimeout(resolve, this.phaseDelayMs);
       signal.addEventListener('abort', () => {

@@ -2,13 +2,13 @@ import Fastify from 'fastify';
 import { ZodError } from 'zod';
 import { createRunRequestSchema } from './apiTypes.js';
 import type { DatasetCatalog } from './datasetCatalog.js';
-import type { EvaluationRuntime } from './mockRuntime.js';
+import type { EvaluationRuntime } from './runtime.js';
 import type { RunManager } from './runManager.js';
 
 export function createApp(dependencies: { datasets: DatasetCatalog; runtime: EvaluationRuntime; runs: RunManager }) {
   const app = Fastify({ logger: false });
 
-  app.get('/api/health', async () => ({ status: 'ok', runtime: 'mock' }));
+  app.get('/api/health', async () => ({ status: 'ok', runtime: dependencies.runtime.source.toLowerCase() }));
   app.get('/api/devices', async () => ({ devices: await dependencies.runtime.listDevices() }));
   app.get('/api/datasets', async () => ({ datasets: await dependencies.datasets.list() }));
   app.post('/api/runs', async (request, reply) => {

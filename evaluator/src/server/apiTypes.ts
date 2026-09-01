@@ -8,6 +8,7 @@ export const deviceInfoSchema = z.object({
   doupaoVersion: z.string().optional(),
   evaluationApiVersion: z.number().int().optional(),
   mock: z.boolean(),
+  reason: z.string().optional(),
 }).strict();
 
 export const sampleRunSchema = z.object({

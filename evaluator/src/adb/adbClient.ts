@@ -74,6 +74,28 @@ export class AdbClient {
     }
   }
 
+  async readAndroidVersion(serial: string): Promise<string> {
+    const result = await this.executeForDevice(serial, ['shell', 'getprop', 'ro.build.version.release']);
+    return result.exitCode === 0 && result.stdout.trim() ? result.stdout.trim() : '未知';
+  }
+
+  async readPackageVersion(serial: string): Promise<string | undefined> {
+    const result = await this.executeForDevice(serial, ['shell', 'dumpsys', 'package', this.packageName]);
+    if (result.exitCode !== 0) return undefined;
+    return /^\s*versionName=(.+)$/m.exec(result.stdout)?.[1]?.trim();
+  }
+
+  async readEvaluationApiVersion(serial: string): Promise<number | undefined> {
+    const result = await this.executeForDevice(serial, [
+      'shell', 'pm', 'resolve-activity', '-a', EVALUATE_ACTION, '-n', this.component,
+    ]);
+    const output = `${result.stdout}\n${result.stderr}`;
+    if (result.exitCode !== 0
+      || !output.includes('EvaluationEntryActivity')
+      || !output.includes('permission=android.permission.DUMP')) return undefined;
+    return 1;
+  }
+
   async submit(serial: string, request: EvalRequestV1): Promise<void> {
     const payload = encodeEvalRequestPayload(request);
     const result = await this.executeForDevice(serial, [
