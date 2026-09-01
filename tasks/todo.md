@@ -156,6 +156,8 @@
 
 **验收标准：** 每次调用显式 serial 且不经 Shell；重试复用不可变请求；Fake ADB 覆盖异常设备、冲突、超时与取消。
 
+**进度：** [x] PC 核心已完成（2026-09-01）：参数数组 Process Adapter、设备状态解析、显式 serial、Base64URL Intent、关联状态读取、有限幂等重试、超时取消与 Fake ADB；[ ] 待普通 APK 入口实现后补齐 API 版本/readiness 与真机验证。
+
 **验证：** adb-runner Fake Process Adapter 集成测试通过。
 
 **依赖：** Task 7、Task 8
