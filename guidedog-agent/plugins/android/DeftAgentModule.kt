@@ -91,6 +91,21 @@ class DeftAgentModule(private val reactContext: ReactApplicationContext) :
                 .emit("user-action-complete", Arguments.createMap())
         }
 
+        fun notifyEvaluationRequest() {
+            val ctx = reactContextRef ?: return
+            if (!ctx.hasActiveReactInstance()) return
+            ctx.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+                .emit("evaluation-request", Arguments.createMap())
+        }
+
+        fun notifyEvaluationCancellation(requestId: String) {
+            val ctx = reactContextRef ?: return
+            if (!ctx.hasActiveReactInstance()) return
+            val payload = Arguments.createMap().apply { putString("requestId", requestId) }
+            ctx.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+                .emit("evaluation-cancel", payload)
+        }
+
         /**
          * Records a floating-overlay stop request. Called from the overlay-stop
          * broadcast (which is reliably delivered), so stopping never depends on
@@ -108,6 +123,41 @@ class DeftAgentModule(private val reactContext: ReactApplicationContext) :
 
     init {
         reactContextRef = reactContext
+    }
+
+    private fun evaluationStore(): EvaluationRequestStore {
+        val root = reactContext.getExternalFilesDir("evaluation")
+            ?: throw IllegalStateException("evaluation external files directory is unavailable")
+        return EvaluationRequestStore(root)
+    }
+
+    @ReactMethod
+    fun consumePendingEvaluationRequest(promise: Promise) {
+        try {
+            val request = evaluationStore().consumePending()
+            promise.resolve(request?.let { evaluationStore().requestToJson(it) })
+        } catch (error: Exception) {
+            promise.reject("EVALUATION_CONSUME_FAILED", error.message, error)
+        }
+    }
+
+    @ReactMethod
+    fun writeEvaluationStatus(statusJson: String, promise: Promise) {
+        try {
+            evaluationStore().writeStatus(statusJson)
+            promise.resolve(true)
+        } catch (error: Exception) {
+            promise.reject("EVALUATION_STATUS_FAILED", error.message, error)
+        }
+    }
+
+    @ReactMethod
+    fun consumePendingEvaluationCancellation(promise: Promise) {
+        try {
+            promise.resolve(evaluationStore().consumePendingCancellation())
+        } catch (error: Exception) {
+            promise.reject("EVALUATION_CANCEL_CONSUME_FAILED", error.message, error)
+        }
     }
 
     /**

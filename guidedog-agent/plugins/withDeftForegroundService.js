@@ -322,6 +322,7 @@ function withKotlinFiles(config) {
         'UserActionReceiver.kt',
         'OverlayTextInputReceiver.kt',
         'EvaluationRequestStore.kt',
+        'EvaluationIntentGateway.kt',
       ]) {
         fs.copyFileSync(
           path.join(pluginAndroidDir, file),
@@ -347,6 +348,10 @@ function withKotlinFiles(config) {
       fs.copyFileSync(
         path.join(pluginAndroidDir, 'EvaluationRequestStoreTest.kt'),
         path.join(projectRoot, 'app', 'src', 'test', 'java', 'com', 'watchdog', 'agent', 'EvaluationRequestStoreTest.kt'),
+      );
+      fs.copyFileSync(
+        path.join(pluginAndroidDir, 'EvaluationIntentGatewayTest.kt'),
+        path.join(projectRoot, 'app', 'src', 'test', 'java', 'com', 'watchdog', 'agent', 'EvaluationIntentGatewayTest.kt'),
       );
       const shellAndroidTestTargetDir = path.join(
         projectRoot, 'app', 'src', 'androidTest', 'java', 'com', 'watchdog', 'agent', 'shell',
@@ -398,6 +403,48 @@ function withKotlinFiles(config) {
           }
 
           fs.writeFileSync(mainAppPath, src, 'utf8');
+        }
+      }
+
+      const mainActivityPath = path.join(packageDir, 'MainActivity.kt');
+      if (fs.existsSync(mainActivityPath)) {
+        let activity = fs.readFileSync(mainActivityPath, 'utf8');
+        if (!activity.includes('handleEvaluationIntent(intent)')) {
+          activity = activity.replace(
+            'import android.os.Bundle',
+            'import android.os.Bundle\nimport android.content.Intent',
+          );
+          activity = activity.replace(
+            '    super.onCreate(null)\n',
+            '    super.onCreate(null)\n    handleEvaluationIntent(intent)\n',
+          );
+          activity = activity.replace(
+            '\n  /**\n   * Returns the name of the main component',
+            `
+  override fun onNewIntent(intent: Intent) {
+    super.onNewIntent(intent)
+    setIntent(intent)
+    handleEvaluationIntent(intent)
+  }
+
+  private fun handleEvaluationIntent(intent: Intent?) {
+    if (intent == null) return
+    val root = getExternalFilesDir("evaluation") ?: return
+    EvaluationIntentGateway.route(
+      intent.component?.className,
+      intent.action,
+      intent.getStringExtra("payload"),
+      intent.getStringExtra("requestId"),
+      EvaluationRequestStore(root),
+      onRequestAvailable = { DeftAgentModule.notifyEvaluationRequest() },
+      onCancellationAvailable = { DeftAgentModule.notifyEvaluationCancellation(it) },
+    )
+  }
+
+  /**
+   * Returns the name of the main component`,
+          );
+          fs.writeFileSync(mainActivityPath, activity, 'utf8');
         }
       }
 

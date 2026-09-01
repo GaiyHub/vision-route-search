@@ -4,7 +4,7 @@
 
 - [x] 用户批准 `tasks/plan.md`，进入实施阶段（2026-09-01）。
 - [x] Task 1 已完成：固化跨端评测契约与 Fixture。
-- [ ] 当前任务：Task 4——接入 Activity Intent 与 Native Module。
+- [ ] 当前任务：Task 5——扩展 `processCommand` 结构化执行契约。
 - [ ] Android/RN Task 2—7 暂缓；PC 端先基于共享 Fixture 和 Fake ADB 完成可测试边界，真机闭环阶段再接入普通 APK。
 
 ## 阶段 A：契约与 Android/RN 单样本闭环
@@ -63,9 +63,11 @@
 **描述：** 在普通 APK 中处理来自受保护 alias 的显式 evaluate/cancel Intent，并通过现有 Native Module 暴露 consume、状态写入和取消事件。
 
 **验收标准：**
-- [ ] 冷启动和 `onNewIntent` 都能提交请求，消费 API 是唯一事实来源。
-- [ ] 普通 Launcher 或非评测组件来源被拒绝，且不新增 exported Receiver。
-- [ ] cancel 只影响匹配的当前 `requestId`，重复取消幂等。
+- [x] 冷启动和 `onNewIntent` 都能提交请求，消费 API 是唯一事实来源。
+- [x] 普通 Launcher 或非评测组件来源被拒绝，且不新增 exported Receiver。
+- [x] cancel 只影响匹配的当前 `requestId`，重复取消幂等。
+
+**状态：** [x] 已完成（2026-09-01）；评测 Intent 网关同时覆盖冷启动与 `onNewIntent`，严格校验 alias 来源，Native Module 提供请求消费、状态写入与取消消费接口。
 
 **验证：** Kotlin 单测通过；`assembleRelease` 成功。
 

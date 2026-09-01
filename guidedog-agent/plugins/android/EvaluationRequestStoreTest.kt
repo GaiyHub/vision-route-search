@@ -28,6 +28,11 @@ class EvaluationRequestStoreTest {
         assertTrue(store.requestDirectory(request).resolve("status.json").readText().contains("ACCEPTED"))
         assertEquals(request, store.consumePending())
         assertEquals(null, store.consumePending())
+        assertTrue(store.requestCancellation(request.requestId))
+        assertEquals(request.requestId, store.consumePendingCancellation())
+        assertEquals(null, store.consumePendingCancellation())
+        store.writeStatus("{\"schemaVersion\":1,\"requestId\":\"req-1\",\"runId\":\"run-1\",\"sampleId\":\"sample-1\",\"state\":\"COMPLETED\",\"updatedAt\":\"2026-09-01T10:00:00.000Z\"}")
+        assertFalse(root.resolve("active-request.json").exists())
     }
 
     @Test fun `decodes Base64URL payload without damaging UTF-8`() {

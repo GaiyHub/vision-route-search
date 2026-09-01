@@ -95,6 +95,47 @@ class EvaluationRequestStore(private val evaluationRoot: File) {
         }
     }
 
+    @Synchronized
+    fun requestCancellation(requestId: String): Boolean {
+        if (!ID_PATTERN.matches(requestId)) return false
+        val active = File(evaluationRoot, "active-request.json")
+        if (!active.exists() || JSONObject(active.readText()).optString("requestId") != requestId) return false
+        atomicWrite(
+            File(evaluationRoot, "pending-cancel.json"),
+            JSONObject().put("requestId", requestId).put("requestedAt", Instant.now().toString()).toString() + "\n",
+        )
+        return true
+    }
+
+    @Synchronized
+    fun consumePendingCancellation(): String? {
+        val pending = File(evaluationRoot, "pending-cancel.json")
+        if (!pending.exists()) return null
+        val requestId = JSONObject(pending.readText()).getString("requestId")
+        Files.deleteIfExists(pending.toPath())
+        return requestId
+    }
+
+    @Synchronized
+    fun writeStatus(statusJson: String) {
+        val status = JSONObject(statusJson)
+        if (status.getInt("schemaVersion") != 1) throw IllegalArgumentException("不支持的状态版本")
+        val requestId = status.getString("requestId")
+        val runId = status.getString("runId")
+        val sampleId = status.getString("sampleId")
+        if (listOf(requestId, runId, sampleId).any { !ID_PATTERN.matches(it) }) throw IllegalArgumentException("状态 ID 无效")
+        val state = status.getString("state")
+        if (state !in setOf("ACCEPTED", "RUNNING", "COMPLETED", "BLOCKED", "TIMED_OUT", "CANCELLED", "ERROR")) {
+            throw IllegalArgumentException("状态值无效")
+        }
+        val directory = File(evaluationRoot, "$runId/$sampleId/$requestId")
+        if (!File(directory, "request.json").exists()) throw IllegalArgumentException("评测请求不存在")
+        atomicWrite(File(directory, "status.json"), status.toString(2) + "\n")
+        if (state in setOf("COMPLETED", "BLOCKED", "TIMED_OUT", "CANCELLED", "ERROR")) clearActive(requestId)
+    }
+
+    fun requestToJson(request: EvaluationRequestRecord): String = requestJson(request).toString()
+
     fun requestDirectory(request: EvaluationRequestRecord): File =
         File(evaluationRoot, "${request.runId}/${request.sampleId}/${request.requestId}")
 
