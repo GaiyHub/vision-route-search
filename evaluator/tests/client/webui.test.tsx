@@ -13,6 +13,7 @@ describe('评测 WebUI', () => {
     }));
     await import('../../src/client/main.js');
     expect(await screen.findByText('Pixel 8（Mock）')).toBeTruthy();
+    expect(screen.getByText('● Mock')).toBeTruthy();
     expect(screen.getByText('冒烟评测')).toBeTruthy();
     expect(screen.getByText('现在几点？')).toBeTruthy();
   });
