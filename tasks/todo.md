@@ -29,11 +29,11 @@
 **描述：** 不新增 APK、Build Type 或配对能力；普通豆泡默认声明独立 `EvaluationEntryActivity` activity-alias，要求 `android.permission.DUMP`，与普通 Launcher 隔离。
 
 **验收标准：**
-- [x] 普通 release 默认包含评测 alias，ADB shell 可显式调用，普通第三方 App 因缺少系统权限被拒绝。
+- [ ] 普通 release 默认包含评测 alias；ADB shell 可调用、第三方 App 被拒绝仍待真机验证。
 - [x] 普通 Launcher 附加评测 action/extra 不进入评测链路，不新增 exported Receiver。
 - [x] Manifest 暴露 `EVALUATION_API_VERSION=1`；普通 release 构建与安装流程保持不变，不产生额外 APK 变体。
 
-**状态：** [x] 已完成（2026-09-01）；Manifest 契约测试、RN typecheck 和普通 `assembleRelease` 均通过，真机权限行为留待 Checkpoint A 验收。
+**状态：** 实现已完成（2026-09-01）；Manifest 契约测试、RN typecheck 和普通 `assembleRelease` 均通过，任务最终完成取决于 Checkpoint A 的真机权限验证。
 
 **验证：** Manifest/入口测试通过；`cd guidedog-agent/android && NODE_ENV=production ./gradlew :app:assembleRelease`
 
