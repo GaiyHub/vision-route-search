@@ -24,6 +24,7 @@ interface TodoFileState {
   outcome: string | null;
   todos: TodoItem[];
   outputDirectory?: string;
+  writeArtifact?: (fileName: string, content: string, append: boolean) => Promise<void>;
 }
 
 let _state: TodoFileState | null = null;
@@ -33,7 +34,10 @@ let _writeQueue: Promise<void> = Promise.resolve();
 export function beginTodoFile(
   traceId: string,
   goal: string,
-  options: { outputDirectory?: string } = {},
+  options: {
+    outputDirectory?: string;
+    writeArtifact?: (fileName: string, content: string, append: boolean) => Promise<void>;
+  } = {},
 ): void {
   _state = {
     traceId,
@@ -43,6 +47,7 @@ export function beginTodoFile(
     outcome: null,
     todos: [],
     outputDirectory: options.outputDirectory,
+    writeArtifact: options.writeArtifact,
   };
   void write();
 }
@@ -75,6 +80,10 @@ async function write(): Promise<void> {
   const content = JSON.stringify(state, null, 2);
   _writeQueue = _writeQueue.then(async () => {
     try {
+      if (state.writeArtifact) {
+        await state.writeArtifact(fileName, content, false);
+        return;
+      }
       if (state.outputDirectory) {
         const directory = state.outputDirectory.replace(/\/+$/, '') + '/';
         await FileSystem.makeDirectoryAsync(directory, { intermediates: true }).catch(() => {});

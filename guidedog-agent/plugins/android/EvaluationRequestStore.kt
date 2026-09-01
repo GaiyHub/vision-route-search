@@ -33,6 +33,7 @@ class EvaluationRequestStore(private val evaluationRoot: File) {
         private val HASH_PATTERN = Regex("^[a-f0-9]{64}$")
         private const val MAX_INSTRUCTION_BYTES = 32 * 1024
         private const val MAX_PAYLOAD_BYTES = 64 * 1024
+        private const val MAX_ARTIFACT_BYTES = 50 * 1024 * 1024
         private const val MIN_TIMEOUT_MS = 1_000L
         private const val MAX_TIMEOUT_MS = 30 * 60 * 1_000L
     }
@@ -72,7 +73,7 @@ class EvaluationRequestStore(private val evaluationRoot: File) {
         requestDirectory.mkdirs()
         atomicWrite(requestFile, requestJson(request).toString(2) + "\n")
         atomicWrite(File(requestDirectory, "status.json"), acceptedStatusJson(request).toString(2) + "\n")
-        atomicWrite(activeFile, JSONObject().put("requestId", request.requestId).toString() + "\n")
+        atomicWrite(activeFile, requestJson(request).toString() + "\n")
         atomicWrite(File(evaluationRoot, "pending-request.json"), requestJson(request).toString() + "\n")
         return EvaluationRegistration.Accepted(duplicate = false)
     }
@@ -84,6 +85,25 @@ class EvaluationRequestStore(private val evaluationRoot: File) {
         val request = parseRequest(JSONObject(pending.readText()))
         Files.deleteIfExists(pending.toPath())
         return request
+    }
+
+    /** Recover a request whose RN process died after consuming pending-request.json. */
+    @Synchronized
+    fun recoverActive(): EvaluationRequestRecord? {
+        val active = File(evaluationRoot, "active-request.json")
+        if (!active.exists()) return null
+        val activeJson = JSONObject(active.readText())
+        if (activeJson.has("runId")) return parseRequest(activeJson)
+        // Compatibility with active files written by an older build, which
+        // contained only requestId.
+        val requestId = activeJson.optString("requestId")
+        if (!ID_PATTERN.matches(requestId)) return null
+        val requestFile = evaluationRoot.walkTopDown()
+            .firstOrNull { it.name == "request.json" && runCatching {
+                JSONObject(it.readText()).optString("requestId") == requestId
+            }.getOrDefault(false) }
+            ?: return null
+        return parseRequest(JSONObject(requestFile.readText()))
     }
 
     @Synchronized
@@ -132,6 +152,32 @@ class EvaluationRequestStore(private val evaluationRoot: File) {
         if (!File(directory, "request.json").exists()) throw IllegalArgumentException("评测请求不存在")
         atomicWrite(File(directory, "status.json"), status.toString(2) + "\n")
         if (state in setOf("COMPLETED", "BLOCKED", "TIMED_OUT", "CANCELLED", "ERROR")) clearActive(requestId)
+    }
+
+    @Synchronized
+    fun writeArtifact(
+        runId: String,
+        sampleId: String,
+        requestId: String,
+        fileName: String,
+        content: String,
+        append: Boolean,
+    ) {
+        if (listOf(runId, sampleId, requestId).any { !ID_PATTERN.matches(it) }) {
+            throw IllegalArgumentException("评测产物 ID 无效")
+        }
+        if (!Regex("^(otel-[a-f0-9]{32}\\.jsonl|todo-[a-f0-9]{32}\\.json)$").matches(fileName)) {
+            throw IllegalArgumentException("评测产物文件名无效")
+        }
+        val directory = File(evaluationRoot, "$runId/$sampleId/$requestId")
+        if (!File(directory, "request.json").exists()) throw IllegalArgumentException("评测请求不存在")
+        val target = File(directory, fileName)
+        val existing = if (append && target.exists()) target.readText() else ""
+        val merged = existing + content
+        if (merged.toByteArray(StandardCharsets.UTF_8).size > MAX_ARTIFACT_BYTES) {
+            throw IllegalArgumentException("评测产物超过大小限制")
+        }
+        atomicWrite(target, merged)
     }
 
     fun requestToJson(request: EvaluationRequestRecord): String = requestJson(request).toString()

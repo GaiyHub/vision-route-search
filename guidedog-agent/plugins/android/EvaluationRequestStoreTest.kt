@@ -6,6 +6,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
+import java.io.File
 import java.security.MessageDigest
 import java.util.Base64
 
@@ -28,6 +29,27 @@ class EvaluationRequestStoreTest {
         assertTrue(store.requestDirectory(request).resolve("status.json").readText().contains("ACCEPTED"))
         assertEquals(request, store.consumePending())
         assertEquals(null, store.consumePending())
+        assertEquals(request, store.recoverActive())
+        store.writeArtifact(
+            request.runId,
+            request.sampleId,
+            request.requestId,
+            "otel-${"a".repeat(32)}.jsonl",
+            "first\n",
+            append = true,
+        )
+        store.writeArtifact(
+            request.runId,
+            request.sampleId,
+            request.requestId,
+            "otel-${"a".repeat(32)}.jsonl",
+            "second\n",
+            append = true,
+        )
+        assertEquals(
+            "first\nsecond\n",
+            File(store.requestDirectory(request), "otel-${"a".repeat(32)}.jsonl").readText(),
+        )
         assertTrue(store.requestCancellation(request.requestId))
         assertEquals(request.requestId, store.consumePendingCancellation())
         assertEquals(null, store.consumePendingCancellation())

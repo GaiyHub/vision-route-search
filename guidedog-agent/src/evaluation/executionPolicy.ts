@@ -9,6 +9,7 @@ export interface CommandExecutionOptions {
     runId: string;
     sampleId: string;
     artifactDirectory: string;
+    writeArtifact?: (fileName: string, content: string, append: boolean) => Promise<void>;
   };
 }
 

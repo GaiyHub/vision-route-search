@@ -55,6 +55,7 @@ function createHarness(execute: jest.Mock) {
       calls.push(`status:${statuses[statuses.length - 1]?.state}`);
       return true;
     }),
+    writeEvaluationArtifact: jest.fn(async () => true),
     consumePendingEvaluationCancellation,
   };
   const stop = jest.fn();
@@ -80,6 +81,11 @@ describe('EvaluationBridge', () => {
         traceId: completedResult.traceId,
         startedAt: completedResult.startedAt,
       });
+      await options.evaluationContext!.writeArtifact!(
+        `otel-${completedResult.traceId}.jsonl`,
+        'trace-line\n',
+        true,
+      );
       return completedResult;
     });
     const harness = createHarness(execute);
@@ -87,6 +93,14 @@ describe('EvaluationBridge', () => {
     await harness.bridge.consumePending();
 
     expect(execute).toHaveBeenCalledWith('打开设置', expect.objectContaining({ source: 'EVALUATION' }));
+    expect(harness.native.writeEvaluationArtifact).toHaveBeenCalledWith(
+      request.runId,
+      request.sampleId,
+      request.requestId,
+      `otel-${completedResult.traceId}.jsonl`,
+      'trace-line\n',
+      true,
+    );
     expect(harness.statuses.map((status) => status.state)).toEqual([
       'ACCEPTED', 'RUNNING', 'COMPLETED',
     ]);

@@ -144,7 +144,7 @@ describe('unified request trace', () => {
       + 'evaluation/run-1/sample-1/request-1';
     const traceId = beginTrace(
       { command: '评测任务', source: 'EVALUATION', requestId: 'request-1' },
-      { outputDirectory },
+      { directory: outputDirectory },
     );
     endTrace('ok', { outcome: 'complete', summary: '完成' });
     await flush(traceId);

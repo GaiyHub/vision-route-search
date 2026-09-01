@@ -4,8 +4,8 @@
 
 - [x] 用户批准 `tasks/plan.md`，进入实施阶段（2026-09-01）。
 - [x] Task 1 已完成：固化跨端评测契约与 Fixture。
-- [ ] 当前任务：Checkpoint A——移动端单样本真机闭环。
-- [ ] Android/RN Task 2—7 暂缓；PC 端先基于共享 Fixture 和 Fake ADB 完成可测试边界，真机闭环阶段再接入普通 APK。
+- [x] Checkpoint A 的普通问答单样本真机闭环已完成（2026-09-01）。
+- [ ] 当前任务：从 PC Runner 接入真机并继续证据采集与断言能力。
 
 ## 阶段 A：契约与 Android/RN 单样本闭环
 
@@ -116,9 +116,9 @@
 **验收标准：**
 - [x] 冷启动、前台请求、重复事件和取消均只执行一次。
 - [x] status、OTel 与 Todo 携带完整关联链，只写 request 对应的 evaluation 目录，不写普通 `tasklogs`。
-- [ ] 一个复杂 UTF-8 指令可通过 ADB 获得结构化终态和完整 summary。
+- [x] 一个复杂 UTF-8 指令可通过 ADB 获得结构化终态和完整 summary。
 
-**状态：** 实现已完成（2026-09-01）；RN Bridge 已接入 App 启动流程，覆盖请求串行消费、状态迁移、匹配取消、样本超时及终态前 Trace/Todo flush；全量测试与普通 release 构建通过，最终完成取决于 Checkpoint A 真机冒烟。
+**状态：** [x] 已完成（2026-09-01）；RN Bridge 已接入 App 启动流程，覆盖请求串行消费、进程重启恢复、状态迁移、匹配取消、冻结安全超时及终态前 Trace/Todo flush；真机复杂 UTF-8 样本在 2.57 秒内完成，中文、引号、反斜杠和换行均无损。
 
 **验证：** RN 测试、Android 构建和一条真机冒烟样本通过。
 
@@ -128,9 +128,9 @@
 
 ### Checkpoint A：移动端单样本闭环
 
-- [ ] 普通 release 构建成功，未产生额外 APK 变体。
-- [ ] 真机普通问答完成，Trace 在终态前落盘。
-- [ ] 普通用户数据和普通日志零写入，普通 Launcher/第三方 App 不响应评测 action。
+- [x] 普通 release 构建成功，未产生额外 APK 变体。
+- [x] 真机普通问答完成，Trace 与 Todo 在独立评测目录落盘。
+- [ ] 普通用户数据和普通日志零写入，普通 Launcher/第三方 App 不响应评测 action（已确认未创建普通 `tasklogs`，其余边界待专项验收）。
 
 ## 阶段 B：PC 最小运行器
 

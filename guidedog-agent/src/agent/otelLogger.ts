@@ -50,7 +50,11 @@ let _rootSpanId: string | null = null;
 const _openSpans = new Map<string, OpenSpan>();
 let _lines: string[] = [];
 let _flushQueue: Promise<void> = Promise.resolve();
-const _traceOutputDirectories = new Map<string, string>();
+type TraceOutput = {
+  directory?: string;
+  writeArtifact?: (fileName: string, content: string, append: boolean) => Promise<void>;
+};
+const _traceOutputs = new Map<string, TraceOutput>();
 const _closedTraces = new Set<string>();
 
 function randomHex(length: number): string {
@@ -228,11 +232,14 @@ function emit(record: Record<string, unknown>, traceId = _traceId): void {
 /** Start one local GenAI agent invocation trace. */
 export function beginTrace(
   attributes: Record<string, unknown> = {},
-  options: { outputDirectory?: string } = {},
+  options: TraceOutput = {},
 ): string {
   const traceId = randomHex(32);
-  if (options.outputDirectory) {
-    _traceOutputDirectories.set(traceId, options.outputDirectory.replace(/\/+$/, '') + '/');
+  if (options.directory || options.writeArtifact) {
+    _traceOutputs.set(traceId, {
+      ...options,
+      directory: options.directory?.replace(/\/+$/, '') + '/',
+    });
   }
   _traceId = traceId;
   _lines = [];
@@ -349,13 +356,17 @@ export async function flush(traceId: string | null = _traceId): Promise<void> {
   _lines = [];
   const fileName = `otel-${traceId}.jsonl`;
   const content = `${pending.join('\n')}\n`;
-  const outputDirectory = _traceOutputDirectories.get(traceId);
+  const output = _traceOutputs.get(traceId);
 
   _flushQueue = _flushQueue.then(async () => {
     try {
-      if (outputDirectory) {
-        await FileSystem.makeDirectoryAsync(outputDirectory, { intermediates: true }).catch(() => {});
-        await appendText(outputDirectory + fileName, content);
+      if (output?.writeArtifact) {
+        await output.writeArtifact(fileName, content, true);
+        return;
+      }
+      if (output?.directory) {
+        await FileSystem.makeDirectoryAsync(output.directory, { intermediates: true }).catch(() => {});
+        await appendText(output.directory + fileName, content);
         return;
       }
       const internalDir = `${FileSystem.documentDirectory ?? ''}tasklogs/`;
@@ -376,7 +387,7 @@ export async function flush(traceId: string | null = _traceId): Promise<void> {
   await _flushQueue;
   if (_closedTraces.has(traceId)) {
     _closedTraces.delete(traceId);
-    _traceOutputDirectories.delete(traceId);
+    _traceOutputs.delete(traceId);
   }
 }
 

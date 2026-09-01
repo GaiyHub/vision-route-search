@@ -142,12 +142,40 @@ class DeftAgentModule(private val reactContext: ReactApplicationContext) :
     }
 
     @ReactMethod
+    fun recoverActiveEvaluationRequest(promise: Promise) {
+        try {
+            val request = evaluationStore().recoverActive()
+            promise.resolve(request?.let { evaluationStore().requestToJson(it) })
+        } catch (error: Exception) {
+            promise.reject("EVALUATION_RECOVERY_FAILED", error.message, error)
+        }
+    }
+
+    @ReactMethod
     fun writeEvaluationStatus(statusJson: String, promise: Promise) {
         try {
             evaluationStore().writeStatus(statusJson)
             promise.resolve(true)
         } catch (error: Exception) {
             promise.reject("EVALUATION_STATUS_FAILED", error.message, error)
+        }
+    }
+
+    @ReactMethod
+    fun writeEvaluationArtifact(
+        runId: String,
+        sampleId: String,
+        requestId: String,
+        fileName: String,
+        content: String,
+        append: Boolean,
+        promise: Promise,
+    ) {
+        try {
+            evaluationStore().writeArtifact(runId, sampleId, requestId, fileName, content, append)
+            promise.resolve(true)
+        } catch (error: Exception) {
+            promise.reject("EVALUATION_ARTIFACT_FAILED", error.message, error)
         }
     }
 

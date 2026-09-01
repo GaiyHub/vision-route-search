@@ -170,7 +170,10 @@ function isEvaluationRun(): boolean {
 
 function shouldPersistTodoArtifacts(): boolean {
   return _activeExecutionPolicy?.persistTodoArtifacts === true
-    || Boolean(_activeExecutionPolicy?.evaluationContext?.artifactDirectory);
+    || Boolean(
+      _activeExecutionPolicy?.evaluationContext?.artifactDirectory
+      || _activeExecutionPolicy?.evaluationContext?.writeArtifact,
+    );
 }
 
 function addMessage(role: MessageRole, kind: MessageKind, text: string): void {
@@ -394,6 +397,7 @@ async function handBackBeforeResume(pkg: string): Promise<void> {
  * AgentLoop is blocked while this runs; no model inference or tool dispatch
  * can continue until consent resolves and the previous app is restored. */
 async function requestScreenCapturePermission(): Promise<'granted' | 'denied'> {
+  blockEvaluationInteraction('USER_ACTION');
   const targetPackage = await captureGateTargetPackage();
   updateExecutionStatus('需要屏幕录制授权，请在系统弹窗中选择“共享屏幕”');
   try {
@@ -459,6 +463,7 @@ async function requestScreenCapturePermission(): Promise<'granted' | 'denied'> {
  * startup prerequisite: the host app is surfaced only when a command actually
  * needs it, then the exact frozen shell command is retried once. */
 async function requestLocationPermission(): Promise<'granted' | 'denied'> {
+  blockEvaluationInteraction('USER_ACTION');
   if (Platform.OS !== 'android') return 'denied';
   const targetPackage = await captureGateTargetPackage();
   updateExecutionStatus('需要位置权限，请在系统弹窗中授权');
@@ -1746,7 +1751,8 @@ export async function processCommand(
       sampleId: evaluationContext.sampleId,
     } : {}),
   }, {
-    outputDirectory: evaluationContext?.artifactDirectory,
+    directory: evaluationContext?.artifactDirectory,
+    writeArtifact: evaluationContext?.writeArtifact,
   });
   try {
     options.onTraceStarted?.({ traceId, startedAt });
@@ -1763,13 +1769,18 @@ export async function processCommand(
   if (shouldPersistTodoArtifacts()) {
     beginTodoFile(traceId, command, {
       outputDirectory: evaluationContext?.artifactDirectory,
+      writeArtifact: evaluationContext?.writeArtifact,
     });
   }
   _otelActionSpanId = null;
   _otelStep = 0;
 
   const a11ySpan = startSpan('prepare.a11y');
-  await waitForAccessibilityService();
+  if (isEvaluationRun()) {
+    logEvent('prepare.skipped', { capability: 'a11y_wait', reason: 'evaluation_non_interactive' });
+  } else {
+    await waitForAccessibilityService();
+  }
   endSpan(a11ySpan);
 
   const fgSpan = startSpan('prepare.foreground');
@@ -1779,7 +1790,14 @@ export async function processCommand(
   endSpan(fgSpan);
 
   const projSpan = startSpan('prepare.projection');
-  await ensureMediaProjection();
+  if (isEvaluationRun()) {
+    logEvent('prepare.skipped', {
+      capability: 'media_projection_consent',
+      reason: 'evaluation_non_interactive',
+    });
+  } else {
+    await ensureMediaProjection();
+  }
   // Keep the MediaProjection and its single VirtualDisplay alive across
   // tasks. Android 14+ permits only one createVirtualDisplay() call per
   // MediaProjection instance; tearing the surface down here would force a

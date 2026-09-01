@@ -11,8 +11,18 @@ import { parseEvalStatus } from './statusCodec';
 
 interface NativeEvaluationModule {
   consumePendingEvaluationRequest(): Promise<string | null>;
+  recoverActiveEvaluationRequest?(): Promise<string | null>;
   writeEvaluationStatus(statusJson: string): Promise<boolean>;
   consumePendingEvaluationCancellation(): Promise<string | null>;
+  writeEvaluationArtifact?(
+    runId: string,
+    sampleId: string,
+    requestId: string,
+    fileName: string,
+    content: string,
+    append: boolean,
+  ): Promise<boolean>;
+  waitFor?(delayMs: number): Promise<boolean>;
 }
 
 interface EvaluationBridgeDependencies {
@@ -50,6 +60,7 @@ function artifactDirectory(request: EvalRequestV1): string {
 export class EvaluationBridge {
   private active: ActiveEvaluation | null = null;
   private consuming = false;
+  private recoveryChecked = false;
 
   constructor(private readonly dependencies: EvaluationBridgeDependencies) {}
 
@@ -58,7 +69,11 @@ export class EvaluationBridge {
     this.consuming = true;
     try {
       while (!this.active) {
-        const raw = await this.dependencies.native.consumePendingEvaluationRequest();
+        let raw = await this.dependencies.native.consumePendingEvaluationRequest();
+        if (!raw && !this.recoveryChecked) {
+          this.recoveryChecked = true;
+          raw = await this.dependencies.native.recoverActiveEvaluationRequest?.() ?? null;
+        }
         if (!raw) return;
         const request = parseEvalRequest(JSON.parse(raw));
         await this.run(request);
@@ -109,10 +124,25 @@ export class EvaluationBridge {
       this.active = null;
       return;
     }
-    const timer = this.dependencies.setTimer(() => {
+    let settled = false;
+    const triggerTimeout = () => {
+      if (settled || this.active !== active) return;
       active.timedOut = true;
       this.dependencies.stop();
-    }, request.timeoutMs);
+    };
+    const timer = this.dependencies.setTimer(triggerTimeout, request.timeoutMs);
+    void this.dependencies.native.waitFor?.(request.timeoutMs)
+      .then(triggerTimeout)
+      .catch(() => {});
+    const pollCancellation = async () => {
+      if (!this.dependencies.native.waitFor) return;
+      while (!settled && this.active === active) {
+        await this.dependencies.native.waitFor(1_000).catch(() => false);
+        if (settled || this.active !== active) return;
+        await this.consumeCancellation().catch(() => {});
+      }
+    };
+    void pollCancellation();
 
     try {
       const result = await this.dependencies.execute(request.instruction, {
@@ -122,6 +152,18 @@ export class EvaluationBridge {
           runId: request.runId,
           sampleId: request.sampleId,
           artifactDirectory: artifactDirectory(request),
+          writeArtifact: this.dependencies.native.writeEvaluationArtifact
+            ? async (fileName, content, append) => {
+                await this.dependencies.native.writeEvaluationArtifact!(
+                  request.runId,
+                  request.sampleId,
+                  request.requestId,
+                  fileName,
+                  content,
+                  append,
+                );
+              }
+            : undefined,
         },
         onTraceStarted: ({ traceId, startedAt }) => {
           active.traceId = traceId;
@@ -182,6 +224,7 @@ export class EvaluationBridge {
         message: error instanceof Error ? error.message : String(error),
       }).catch(() => {});
     } finally {
+      settled = true;
       this.dependencies.clearTimer(timer);
       this.active = null;
     }
