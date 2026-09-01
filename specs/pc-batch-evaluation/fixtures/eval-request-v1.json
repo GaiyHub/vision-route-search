@@ -1,0 +1,14 @@
+{
+  "request": {
+    "schemaVersion": 1,
+    "requestId": "req-eval-0001",
+    "runId": "run-smoke-20260901",
+    "sampleId": "unicode-command",
+    "instruction": "请打开“设置”\\路径\n然后回答：现在几点？",
+    "timeoutMs": 180000,
+    "conversationMode": "ISOLATED",
+    "requestHash": "8ad717e5ad33c4e64c89351371c084f8a2eef89416b8ed8f046765b71b630292"
+  },
+  "canonicalHashInput": "{\"schemaVersion\":1,\"requestId\":\"req-eval-0001\",\"runId\":\"run-smoke-20260901\",\"sampleId\":\"unicode-command\",\"instruction\":\"请打开“设置”\\\\路径\\n然后回答：现在几点？\",\"timeoutMs\":180000,\"conversationMode\":\"ISOLATED\"}",
+  "encodedPayload": "eyJzY2hlbWFWZXJzaW9uIjoxLCJyZXF1ZXN0SWQiOiJyZXEtZXZhbC0wMDAxIiwicnVuSWQiOiJydW4tc21va2UtMjAyNjA5MDEiLCJzYW1wbGVJZCI6InVuaWNvZGUtY29tbWFuZCIsImluc3RydWN0aW9uIjoi6K-35omT5byA4oCc6K6-572u4oCdXFzot6_lvoRcbueEtuWQjuWbnuetlO-8mueOsOWcqOWHoOeCue-8nyIsInRpbWVvdXRNcyI6MTgwMDAwLCJjb252ZXJzYXRpb25Nb2RlIjoiSVNPTEFURUQiLCJyZXF1ZXN0SGFzaCI6IjhhZDcxN2U1YWQzM2M0ZTY0Yzg5MzUxMzcxYzA4NGY4YTJlZWY4OTQxNmI4ZWQ4ZjA0Njc2NWI3MWI2MzAyOTIifQ"
+}
