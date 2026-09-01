@@ -23,6 +23,24 @@
 
 证据包至少包含请求与终态、完整最终回复、Agent outcome、标准化工具时间线、模型调用与 Token/Cache 汇总、步数、Todo、最终设备状态、原始文件路径和采集告警。
 
+### 原始轨迹与逐步模型
+
+- 每次样本执行生成独立的 `trace.json`，按时间稳定排序，首项为用户输入，后续项使用 `MODEL_CALL`、`TOOL_CALL`、`AGENT_EVENT` 三类事件表达。
+- `MODEL_CALL` 保存本轮实际提交给模型的消息、工具定义引用、图片引用、模型原始输出、finish reason、输入/输出/缓存 Token、开始结束时间及耗时；仅在 `source=EVALUATION` 时采集完整模型输入输出，避免扩大普通聊天日志范围。
+- `TOOL_CALL` 保存工具名、标准化参数、原始结果或错误、step、开始结束时间及耗时；调用参数和结果保持与 OTel 原始 Span 可互相追溯。
+- `AGENT_EVENT` 保存 thinking、observation、visual memory、上下文压缩、熔断和人工交互等关键事件，不将其错误计为模型或工具调用。
+- 所有事件包含稳定 `eventId`、`sequence`、`traceId`、可选 `spanId/parentSpanId/round/step` 和原始证据指针；相同原始证据重复标准化必须得到相同顺序和 ID。
+- 原始 OTel 文件保持不可变；WebUI 默认读取标准化轨迹，必要时可查看或下载原始 JSONL。任何截断都必须同时返回 `isTruncated`、原始大小和原始文件指针。
+
+### 样本关键指标
+
+- `success`：以样本最终聚合 verdict 是否为 `PASSED` 为准，同时保留 Agent outcome、断言和 Judge 结论，避免把“Agent 自报完成”等同于评测成功。
+- `tokenUsage`：汇总所有模型调用的 prompt、completion、total、cached Token；缺失值标记为 unavailable，不以 0 冒充。
+- `stepCount`：使用 Agent 的实际 step 计数；另行展示 `modelCallCount` 与 `toolCallCount`，避免不同执行动作混用一个口径。
+- `cacheHitRate`：当 prompt Token 可用时按 `cachedTokens / promptTokens` 计算；分母为 0 或 Provider 未返回缓存指标时标记 unavailable。
+- `toolSuccessRate`：成功工具调用数除以有明确成功状态的工具调用数；未知状态不进入分母，并单独展示 unknown 数量。
+- `durationMs`：样本开始至结束的端到端耗时；同时提供模型、工具和各编排阶段耗时，嵌套 Span 不直接相加为总耗时。
+
 ## 完整性规则
 
 - 先将原始文件保存到 `.data/runs/<runId>/samples/<sampleId>/raw/`，再生成 normalized 结果。
@@ -42,5 +60,7 @@
 ## 验收标准
 
 - 标准化后的工具调用顺序、错误、耗时和 Token/Cache 用量与代表性现有 OTel Trace 一致。
+- 任意已落盘样本均可还原用户输入及每轮模型/工具调用的输入、输出、Token 和耗时；模型调用完整输入输出只存在于评测隔离目录。
+- 样本关键指标均注明定义和 unavailable 语义，且可由标准化轨迹重复计算得到相同结果。
 - 即使相邻样本时间戳重叠，也不会交叉关联证据。
 - 终态文件、OTel 根 Span 和最终屏幕的采集时间关系在报告中可审计。

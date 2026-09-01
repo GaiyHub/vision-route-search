@@ -304,3 +304,65 @@
 - [ ] 移动端和 evaluator 全量测试、类型检查、构建通过。
 - [ ] 真机批量评测及 LLM-as-Judge 报告通过验收。
 - [ ] 无未解释的用户数据变化或生产构建能力暴露。
+
+## 增量阶段 F：样本轨迹与关键指标
+
+### Task 19：定义轨迹、指标与详情 API 契约（S）
+
+**描述：** 定义 `TraceEventV1`、`SampleMetricsV1`、分页 Trace 响应和受清单约束的 Artifact 响应 Schema。
+
+**验收标准：** 事件类型可区分用户输入、模型、工具和 Agent 事件；指标具有明确 unavailable 语义；大型 Trace 不进入 Run 摘要。
+
+**验证：** `cd evaluator && npm run typecheck && npm test`
+
+**依赖：** Task 12
+
+### Task 20：补齐 evaluation-only 模型 I/O 轨迹（M）
+
+**描述：** 在不改变普通聊天遥测范围的前提下，为评测执行记录每轮模型实际输入、原始输出、Token 和耗时。
+
+**验收标准：** 模型请求/响应可与 round、step 和模型 Span 关联；普通聊天 OTel 不新增完整模型正文；凭据不进入轨迹。
+
+**验证：** `cd guidedog-agent && npm run typecheck && npm test -- --runInBand --forceExit`
+
+**依赖：** Task 19
+
+### Task 21：标准化轨迹并计算关键指标（M）
+
+**描述：** 从原始 request/status/OTel 生成稳定 `trace.json` 和 `metrics.json`，覆盖成功、Token、步数、缓存命中率、工具成功率与耗时。
+
+**验收标准：** 可由代表性真机 Trace 重建全部指标；未知缓存/工具状态不记为零；重复解析结果稳定。
+
+**验证：** Evidence Fixture 单测；`cd evaluator && npm run typecheck && npm test`
+
+**依赖：** Task 19、Task 20
+
+### Checkpoint F1：数据链路
+
+- [ ] 移动端与 evaluator 测试通过。
+- [ ] 一个既有真机 Run 可生成逐步轨迹和指标，且原始文件不被修改。
+
+### Task 22：实现样本详情、Trace 与 Artifact API（M）
+
+**描述：** 增加按需加载的详情接口、Trace 分页过滤和 manifest 白名单 Artifact 读取。
+
+**验收标准：** 刷新后可从落盘 Run 查询；非法 ID/路径穿越被拒绝；Trace 不污染 Run 列表响应。
+
+**验证：** Fastify API 集成测试；`cd evaluator && npm run build`
+
+**依赖：** Task 21
+
+### Task 23：实现 WebUI 指标卡与原始轨迹视图（M）
+
+**描述：** 在每次样本执行详情中展示关键指标，并提供可展开、可过滤、分页加载的原始轨迹时间线。
+
+**验收标准：** 可查看用户输入、每轮模型/工具输入输出、逐步 Token 和耗时；缺失指标明确显示“不可用”；大型 Trace 页面仍可操作。
+
+**验证：** React 测试、production build、已有真机 Run 手工验收。
+
+**依赖：** Task 22
+
+### Checkpoint F2：可观测性闭环
+
+- [ ] 浏览器断开手机后仍可查看每次样本执行的完整轨迹和关键指标。
+- [ ] evaluator 全量 typecheck、tests、build 通过。

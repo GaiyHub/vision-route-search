@@ -11,7 +11,7 @@
 - Judge：配置 Provider/Model、测试连接、标记图片能力；密钥不回显。
 - 运行：选择评测集和设备，启动全部或选中样本，查看运行参数快照。
 - 实时进度：聚合数量、当前阶段、样本状态、耗时和取消入口。
-- 样本详情：指令、完整回复、断言、Judge、工具时间线、Todo、Token、截图、UI 层级与原始产物链接。
+- 样本详情：顶部指标卡展示最终成功状态、Token、步数、缓存命中率、工具成功率和端到端耗时；轨迹按时间展示用户输入、逐轮模型调用、工具调用及关键 Agent 事件，支持展开查看原始输入输出、逐步 Token 与耗时；同时展示完整回复、断言、Judge、Todo、截图、UI 层级与原始产物链接。
 - 报告历史：打开、导出、删除本地 Run，以及从旧 Run 创建失败重跑。
 
 ## 本地 API
@@ -27,6 +27,8 @@
 - `POST /api/runs/:runId/cancel`
 - `POST /api/runs/:runId/reruns`
 - `GET /api/runs/:runId/samples/:sampleId`
+- `GET /api/runs/:runId/samples/:sampleId/trace`，按需返回标准化轨迹；支持 `cursor`、`limit` 和可选事件类型过滤，大型原始内容不进入 Run 或 Sample 摘要响应。
+- `GET /api/runs/:runId/samples/:sampleId/artifacts/:artifactId`，只读取清单中已登记的原始产物，不接受任意文件路径。
 - `GET /api/runs/:runId/report`
 
 请求、响应和错误体使用共享 Schema。统一错误结构：
@@ -60,3 +62,4 @@ interface ApiErrorV1 {
 - ADB 已安装且普通豆泡 APK 的评测接口就绪后，无需终端或配对操作即可完成主流程。
 - SSE 断线或浏览器刷新不会丢失已完成样本与当前进度。
 - 大型 Trace 不进入主 Run 响应，样本详情按需加载且页面保持可用。
+- 每次执行完成后无需连接手机即可回看完整轨迹和关键指标；刷新页面后仍可从落盘数据恢复。

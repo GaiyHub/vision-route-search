@@ -318,6 +318,28 @@ adb -s <serial> shell dumpsys package com.watchdog.agent
 - 多设备并行调度和云端设备农场。
 - 远程部署、多人权限和账号系统。
 - 任意宿主机 Shell 或任意 `adb shell` setup 脚本。
+
+## 11. 增量计划：样本轨迹与关键指标（2026-09-02）
+
+### 决策
+
+- 复用现有 OTel JSONL 作为不可变原始事实源，新增版本化 `trace.json` 和 `metrics.json`，不把解析逻辑散落在 WebUI。
+- 当前 OTel 已覆盖用户输入、工具输入输出、Token/Cache 与耗时；模型 Span 尚未保存完整请求/响应，因此仅为 evaluation execution scope 增加模型 I/O 采集，不扩大普通聊天日志范围。
+- Run 列表继续只返回摘要；Sample API 返回指标与产物索引；Trace API 分页按需返回事件；Artifact API 仅通过 manifest 白名单读取。
+- 指标口径以 `SPEC-evidence-collector.md` 为准：评测成功不等于 Agent outcome；缓存命中率为 cached/prompt；工具未知状态不进入成功率分母。
+
+### 实施顺序
+
+1. 冻结 `TraceEventV1`、`SampleMetricsV1` 和详情 API 契约。
+2. 打通 evaluation-only 模型输入输出采集，并从现有 OTel 生成标准化轨迹与指标。
+3. 增加 Sample/Trace/Artifact 查询 API，以 Fixture 验证分页、路径安全和 unavailable 指标。
+4. WebUI 增加指标卡、可展开时间线和原始产物入口，并用已有真机 Run 验收。
+
+### 风险与控制
+
+- 模型请求可能很大且含图片：标准化记录保存引用和大小，列表 API 不内联图片；大文本分页/截断并保留原始指针。
+- 原始轨迹含用户与应用数据：本地 raw 保留审计真实性，对远程 Judge/导出继续执行脱敏；凭据和 Authorization 永不采集。
+- Span 嵌套会导致耗时重复累计：端到端耗时取 Sample 生命周期，模型/工具耗时分别统计，不相加冒充总耗时。
 - 自动回答 `ask_user`、自动完成用户手动操作或批准高风险动作。
 - 在 PC 端修改豆泡模型、API Key、Skills 或工具配置。
 - 将 evaluator 做成通用第三方移动 Agent 评测平台。
