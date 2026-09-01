@@ -4,7 +4,7 @@
 
 - [x] 用户批准 `tasks/plan.md`，进入实施阶段（2026-09-01）。
 - [x] Task 1 已完成：固化跨端评测契约与 Fixture。
-- [ ] 当前任务：Task 9——实现评测集加载、校验与快照（PC-first）。
+- [ ] 当前任务：Task 10——实现 ADB Runner 的 PC/Fake ADB 部分（PC-first）。
 - [ ] Android/RN Task 2—7 暂缓；PC 端先基于共享 Fixture 和 Fake ADB 完成可测试边界，真机闭环阶段再接入普通 APK。
 
 ## 阶段 A：契约与 Android/RN 单样本闭环
@@ -141,6 +141,8 @@
 **描述：** 支持 YAML/JSON 标准化、稳定顺序、字段级错误与安全的工作副本/Run 快照。
 
 **验收标准：** 等价 YAML/JSON 结果一致；非法断言、重复 ID、危险 setup 和无 Judge/断言样本在运行前拒绝；快照不可被后续编辑影响。
+
+**状态：** [x] 已完成（2026-09-01）；实现版本化 Schema、YAML/JSON 标准化、白名单 setup、断言/Judge 预校验、工作副本和不可覆盖 Run 快照，累计 14 项测试通过。
 
 **验证：** dataset 单元与文件系统集成测试通过。
 

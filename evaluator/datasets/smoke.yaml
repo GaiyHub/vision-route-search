@@ -1,0 +1,19 @@
+schemaVersion: 1
+id: doupao-smoke
+name: 豆泡冒烟评测
+defaults:
+  timeoutMs: 180000
+  conversationMode: ISOLATED
+samples:
+  - id: answer-time
+    instruction: 现在几点？
+    assertions:
+      - type: outcome
+        equals: complete
+      - type: finalResponse
+        matches: "\\d{1,2}[:：]\\d{2}"
+    judge:
+      enabled: true
+      rubric: 回答应给出清晰、合理的当前时间，不应声称执行了无关手机操作。
+      threshold: 0.8
+      evidence: [finalResponse, traceSummary]
