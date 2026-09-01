@@ -21,8 +21,10 @@ import {
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import {
-  addMessage,
+  addMessage as addChatStoreMessage,
   getMessages,
+  type MessageKind,
+  type MessageRole,
 } from '../store/chatStore';
 import { buildConversationMessages } from './conversationContext';
 import type { ConversationMessage, ToolRiskGateRequest } from '../device-agent/types';
@@ -132,6 +134,13 @@ import type {
   CommandOutcome,
 } from '../evaluation/contracts';
 import { createCommandExecutionResult } from '../evaluation/commandExecutionResult';
+import {
+  resolveCommandExecutionPolicy,
+  type CommandExecutionOptions,
+  type CommandExecutionPolicy,
+} from '../evaluation/executionPolicy';
+
+export type { CommandExecutionOptions } from '../evaluation/executionPolicy';
 
 export { COMPLETION_SUPPLEMENT_MAX_LENGTH } from './completionDecision';
 export { AGENT_SYSTEM_PROMPT };
@@ -152,6 +161,29 @@ let _commandsQueuedAfterStop: string[] = [];
 // variable) so an overlapping or leaked timer from an earlier run can never
 // survive teardown: the finally block clears every handle in it.
 let _heartbeatTimers = new Set<ReturnType<typeof setInterval>>();
+let _activeExecutionPolicy: CommandExecutionPolicy | null = null;
+let _blockedInteraction: CommandExecutionResult['blockedInteraction'];
+
+function isEvaluationRun(): boolean {
+  return _activeExecutionPolicy?.source === 'EVALUATION';
+}
+
+function addMessage(role: MessageRole, kind: MessageKind, text: string): void {
+  if (isEvaluationRun()) return;
+  addChatStoreMessage(role, kind, text);
+}
+
+function blockEvaluationInteraction(
+  interaction: NonNullable<CommandExecutionResult['blockedInteraction']>,
+  policy = _activeExecutionPolicy?.interactionPolicy,
+): void {
+  if (policy !== 'BLOCK') return;
+  if (isEvaluationRun()) {
+    _blockedInteraction = interaction;
+    stopAgent();
+  }
+  throw new InteractionBlockedError(interaction);
+}
 
 // ---------------------------------------------------------------------------
 // Completion confirmation (user gate on the model's completion verdict)
@@ -499,6 +531,9 @@ export async function requestCompletionDecision(
   result: string,
 ): Promise<'complete' | { continue: string }> {
   try {
+    if (_activeExecutionPolicy?.completionPolicy === 'AUTO_ACCEPT') {
+      return 'complete';
+    }
     // eslint-disable-next-line no-console
     console.log('[GATE] entered');
     // AgentLoop deliberately routes both task_complete and terminal prose
@@ -813,7 +848,7 @@ function buildTodoTools():
   const todoList = _todoList;
   if (!todoList) return undefined;
   const persist = (eventName: 'todo.create' | 'todo.update') => (items: ReturnType<TodoList['getItems']>) => {
-    saveTodos(items);
+    if (!isEvaluationRun()) saveTodos(items);
     logEvent(eventName, {
       count: items.length,
       completed: items.filter((item) => item.status === 'completed').length,
@@ -878,7 +913,9 @@ const CONFIRM_ACTION_TOOL = {
   },
 };
 
-export function buildConfirmTool(): {
+export function buildConfirmTool(
+  interactionPolicy?: CommandExecutionPolicy['interactionPolicy'],
+): {
   tool: unknown;
   handler: (args: Record<string, unknown>) => Promise<unknown>;
 } {
@@ -890,6 +927,7 @@ export function buildConfirmTool(): {
         : 'high';
       const action = String(args.action ?? '未知操作');
       const reason = sanitizeRiskReason(args.reason);
+      blockEvaluationInteraction('RISK', interactionPolicy);
 
       // Idempotent short-circuit: a model can loop back and re-confirm the
       // same action (observed in the wild — three consecutive confirm_action
@@ -1035,7 +1073,9 @@ export const ASK_USER_TOOL = {
   },
 };
 
-export function buildAskUserTool(): {
+export function buildAskUserTool(
+  interactionPolicy?: CommandExecutionPolicy['interactionPolicy'],
+): {
   tool: unknown;
   handler: (args: Record<string, unknown>) => Promise<unknown>;
 } {
@@ -1046,6 +1086,7 @@ export function buildAskUserTool(): {
       if (!question) {
         return { ok: false, error: 'question 不能为空' };
       }
+      blockEvaluationInteraction('ASK_USER', interactionPolicy);
       const placeholder = typeof args.placeholder === 'string' && args.placeholder.trim()
         ? args.placeholder.trim()
         : undefined;
@@ -1156,7 +1197,9 @@ export const REQUEST_USER_ACTION_TOOL = {
   },
 };
 
-export function buildRequestUserActionTool(): {
+export function buildRequestUserActionTool(
+  interactionPolicy?: CommandExecutionPolicy['interactionPolicy'],
+): {
   tool: unknown;
   handler: (args: Record<string, unknown>) => Promise<unknown>;
 } {
@@ -1169,6 +1212,7 @@ export function buildRequestUserActionTool(): {
       if (!instruction) {
         return { ok: false, code: 'INVALID_INSTRUCTION', error: 'instruction 不能为空' };
       }
+      blockEvaluationInteraction('USER_ACTION', interactionPolicy);
       if (AppState.currentState === 'active') {
         return {
           ok: false,
@@ -1469,7 +1513,7 @@ function _saveResumableTask(t: ResumableTask): void {
 }
 
 function _recordStep(actionText: string): void {
-  if (_resumableTask) {
+  if (!isEvaluationRun() && _resumableTask) {
     _resumableTask.steps.push(actionText);
     _saveResumableTask(_resumableTask);
   }
@@ -1609,14 +1653,6 @@ AppState.addEventListener('change', (nextState) => {
 // Public API
 // ---------------------------------------------------------------------------
 
-export interface CommandExecutionOptions {
-  source?: 'CHAT' | 'EVALUATION';
-  conversationMode?: 'CONTINUOUS' | 'ISOLATED';
-  completionPolicy?: 'ASK_USER' | 'AUTO_ACCEPT';
-  interactionPolicy?: 'WAIT_FOR_USER' | 'BLOCK';
-  onTraceStarted?: (event: { traceId: string; startedAt: string }) => void;
-}
-
 export class CommandExecutionRejectedError extends Error {
   constructor(
     public readonly code: 'RUN_ALREADY_ACTIVE',
@@ -1624,6 +1660,15 @@ export class CommandExecutionRejectedError extends Error {
   ) {
     super(message);
     this.name = 'CommandExecutionRejectedError';
+  }
+}
+
+export class InteractionBlockedError extends Error {
+  constructor(
+    public readonly interaction: NonNullable<CommandExecutionResult['blockedInteraction']>,
+  ) {
+    super(`评测执行需要用户交互：${interaction}`);
+    this.name = 'InteractionBlockedError';
   }
 }
 
@@ -1644,22 +1689,30 @@ export async function processCommand(
   command: string,
   options: CommandExecutionOptions = {},
 ): Promise<CommandExecutionResult | undefined> {
+  let ownsExecutionPolicy = false;
+  try {
   // Reject overlapping runs: starting a new task while one is still active
   // would clobber module-level state (heartbeat timers, active loop) and
   // leave the previous run's timers and UI state (step progress, elapsed
   // time) running after it finished.
   if (getAgentState().isRunning) {
-    addMessage('agent', 'text', '当前已有任务在运行，请先等待完成或停止后再继续。');
-    if (options.source !== 'EVALUATION') return undefined;
+    if (options.source !== 'EVALUATION') {
+      addChatStoreMessage('agent', 'text', '当前已有任务在运行，请先等待完成或停止后再继续。');
+      return undefined;
+    }
     throw new CommandExecutionRejectedError(
       'RUN_ALREADY_ACTIVE',
       '当前已有任务在运行',
     );
   }
+  const executionPolicy = resolveCommandExecutionPolicy(options);
+  _activeExecutionPolicy = executionPolicy;
+  ownsExecutionPolicy = true;
+  _blockedInteraction = undefined;
   // The UI conversation, not an individual agent run, defines continuity.
   // The current command is already visible in chat and is excluded by the
   // builder; prior user/assistant turns are carried into the new loop.
-  const conversationHistory = options.conversationMode === 'ISOLATED'
+  const conversationHistory = executionPolicy.conversationMode === 'ISOLATED'
     ? []
     : buildConversationMessages(
         getMessages(),
@@ -1678,7 +1731,7 @@ export async function processCommand(
   // per-step thinking / action / observation, finish) carries the same traceId.
   const startedAtMs = Date.now();
   const startedAt = new Date(startedAtMs).toISOString();
-  const traceId = beginTrace({ command, source: options.source ?? 'CHAT' });
+  const traceId = beginTrace({ command, source: executionPolicy.source });
   try {
     options.onTraceStarted?.({ traceId, startedAt });
   } catch (error) {
@@ -1691,7 +1744,7 @@ export async function processCommand(
   // Todo list for this request: goal + tasks persisted to
   // tasklogs/todo-<traceId>.json (adb-pullable), updated via todo_update.
   _todoList = new TodoList();
-  beginTodoFile(traceId, command);
+  if (!isEvaluationRun()) beginTodoFile(traceId, command);
   _otelActionSpanId = null;
   _otelStep = 0;
 
@@ -1728,7 +1781,7 @@ export async function processCommand(
   agentStarted(command, getSettings().maxSteps);
   beginExecution();
   beginTaskLog(command);
-  resetTaskTokens();
+  resetTaskTokens({ persistToGlobal: !isEvaluationRun() });
   // eslint-disable-next-line no-console
   console.log(
     '[HEARTBEAT] task started — if JS stops ticking in the background, the OEM is freezing the process',
@@ -1739,8 +1792,10 @@ export async function processCommand(
       console.log('[HEARTBEAT] js alive');
     }, 5000),
   );
-  _resumableTask = { task: command, steps: [], startedAt: startedAtMs };
-  _saveResumableTask(_resumableTask);
+  if (!isEvaluationRun()) {
+    _resumableTask = { task: command, steps: [], startedAt: startedAtMs };
+    _saveResumableTask(_resumableTask);
+  }
 
   let outcome: CommandOutcome = 'complete';
   let actions: string[] = [];
@@ -1753,8 +1808,20 @@ export async function processCommand(
     actions = result.actions;
     outcome = result.outcome;
     summary = result.summary;
+    if (_blockedInteraction) {
+      outcome = 'blocked';
+      summary = `评测执行需要用户交互：${_blockedInteraction}`;
+    }
   } catch (err) {
-    if (_stopped || isSummaryAbortError(err)) {
+    const blockedInteraction = _blockedInteraction ?? (
+      err instanceof InteractionBlockedError ? err.interaction : undefined
+    );
+    if (blockedInteraction) {
+      const interaction = blockedInteraction;
+      _blockedInteraction = interaction;
+      outcome = 'blocked';
+      summary = `评测执行需要用户交互：${interaction}`;
+    } else if (_stopped || isSummaryAbortError(err)) {
       outcome = 'stopped';
       summary = '已终止。';
     } else {
@@ -1799,15 +1866,19 @@ export async function processCommand(
       // cleanup below keeps running even if a subscriber callback throws.
     }
     setAgentBusy(false);
-    _resumableTask = null;
-    void clearResumableTask();
+    if (!isEvaluationRun()) {
+      _resumableTask = null;
+      void clearResumableTask();
+    }
     endExecution();
     // Close the request trace (root span status reflects the outcome).
     if (_otelActionSpanId) {
       endSpan(_otelActionSpanId, outcome === 'error' ? 'error' : 'ok');
       _otelActionSpanId = null;
     }
-    finalizeTodoFile(outcome === 'complete' || outcome === 'stopped' ? outcome : 'error');
+    if (!isEvaluationRun()) {
+      finalizeTodoFile(outcome === 'complete' || outcome === 'stopped' ? outcome : 'error');
+    }
     _todoList = null;
     endTrace(outcome === 'complete' || outcome === 'stopped' ? 'ok' : 'error', {
       outcome,
@@ -1831,17 +1902,19 @@ export async function processCommand(
   // A completed response is a new chronological chat event. It must not
   // reuse a task-start placeholder because the user may have added follow-up
   // messages while this run was still active.
-  addMessage('agent', 'text', summary || '完成。');
   const taskTokens = getTaskTokens();
   const finishedAtMs = Date.now();
-  addSession(
-    command,
-    actions,
-    sessionOutcome(outcome),
-    summary,
-    finishedAtMs - startedAtMs,
-    taskTokens,
-  );
+  if (!isEvaluationRun()) {
+    addChatStoreMessage('agent', 'text', summary || '完成。');
+    addSession(
+      command,
+      actions,
+      sessionOutcome(outcome),
+      summary,
+      finishedAtMs - startedAtMs,
+      taskTokens,
+    );
+  }
 
   const result = createCommandExecutionResult({
     outcome,
@@ -1852,7 +1925,12 @@ export async function processCommand(
     stepCount,
     actionCount,
     tokens: taskTokens,
+    blockedInteraction: _blockedInteraction,
   });
+
+  _activeExecutionPolicy = null;
+  _blockedInteraction = undefined;
+  ownsExecutionPolicy = false;
 
   // Inputs arriving while Stop was unwinding start only after the old task's
   // final response and session record are complete, preserving chronology.
@@ -1861,6 +1939,12 @@ export async function processCommand(
     void processCommand(queued.join('\n'));
   }
   return result;
+  } finally {
+    if (ownsExecutionPolicy) {
+      _activeExecutionPolicy = null;
+      _blockedInteraction = undefined;
+    }
+  }
 }
 
 function isSummaryAbortError(err: unknown): boolean {
@@ -2447,7 +2531,7 @@ async function runRealPlannerLoop(
       // now so the plan is in the todo file even before the LLM updates it.
       if (_todoList && !_todoList.isEmpty()) {
         const seeded = _todoList.getItems();
-        saveTodos(seeded);
+        if (!isEvaluationRun()) saveTodos(seeded);
         logEvent('todo.update', { count: seeded.length, source: 'planner' });
       }
       updateExecutionThinking(`Plan:\n${planText}`);

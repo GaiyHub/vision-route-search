@@ -64,6 +64,29 @@ describe('tokenStats', () => {
     expect(global.cached).toBe(50);
   });
 
+  it('isolates one task from persistent global token statistics', () => {
+    store.addTokens(100, 20, 50);
+    store.resetTaskTokens({ persistToGlobal: false });
+    store.addTokens(30, 10, 20);
+
+    expect(store.getTaskTokens()).toEqual({
+      prompt: 30,
+      completion: 10,
+      cached: 20,
+      total: 40,
+    });
+    expect(store.getGlobalTokens()).toEqual({
+      prompt: 100,
+      completion: 20,
+      cached: 50,
+      total: 120,
+    });
+
+    store.resetTaskTokens();
+    store.addTokens(5, 2, 1);
+    expect(store.getGlobalTokens().total).toBe(127);
+  });
+
   it('notifies subscribers on every mutation', () => {
     const listener = jest.fn();
     store.subscribeTokenStats(listener);

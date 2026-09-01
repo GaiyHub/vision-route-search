@@ -10,6 +10,7 @@ export interface CommandExecutionResultInput {
   stepCount: number;
   actionCount: number;
   tokens: TokenUsage;
+  blockedInteraction?: CommandExecutionResult['blockedInteraction'];
 }
 
 /** Freeze mutable runtime counters into the versioned evaluation contract. */
@@ -26,5 +27,8 @@ export function createCommandExecutionResult(
     stepCount: Math.max(0, Math.floor(input.stepCount)),
     actionCount: Math.max(0, Math.floor(input.actionCount)),
     tokens: { ...input.tokens },
+    ...(input.blockedInteraction
+      ? { blockedInteraction: input.blockedInteraction }
+      : {}),
   };
 }

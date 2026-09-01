@@ -4,7 +4,7 @@
 
 - [x] 用户批准 `tasks/plan.md`，进入实施阶段（2026-09-01）。
 - [x] Task 1 已完成：固化跨端评测契约与 Fixture。
-- [ ] 当前任务：Task 6——实现 evaluation 执行隔离与交互策略。
+- [ ] 当前任务：Task 7——实现 RN EvaluationBridge。
 - [ ] Android/RN Task 2—7 暂缓；PC 端先基于共享 Fixture 和 Fake ADB 完成可测试边界，真机闭环阶段再接入普通 APK。
 
 ## 阶段 A：契约与 Android/RN 单样本闭环
@@ -97,9 +97,11 @@
 **描述：** 为 evaluation 显式禁用 Chat/History/全局 Token/resumable 写入，使用空会话上下文；自动接受普通完成确认，将三类人工交互映射为 `BLOCKED`。
 
 **验收标准：**
-- [ ] 评测前后普通用户数据字节等价，Settings/Skills 等配置只读复用。
-- [ ] RISK、ASK_USER、USER_ACTION 均立即返回结构化 blocked，不展示或等待交互卡片。
-- [ ] 聊天模式的连续对话、完成确认和风险卡控保持原行为。
+- [x] 评测前后普通用户数据字节等价，Settings/Skills 等配置只读复用。
+- [x] RISK、ASK_USER、USER_ACTION 均立即返回结构化 blocked，不展示或等待交互卡片。
+- [x] 聊天模式的连续对话、完成确认和风险卡控保持原行为。
+
+**状态：** [x] 已完成（2026-09-01）；评测执行策略默认强制空会话、完成自动接受和人工交互阻断，禁止写入 Chat、History、全局 Token、普通 Todo 与 resumable 数据；聊天默认策略及全量测试保持通过。
 
 **验证：** RN 隔离与聊天回归测试全部通过。
 

@@ -86,6 +86,7 @@ import {
   beginCompletionSupplement,
   buildAskUserTool,
   buildConfirmTool,
+  buildRequestUserActionTool,
   CommandExecutionRejectedError,
   processCommand,
   recordTaskToolDispatch,
@@ -139,6 +140,19 @@ describe('agentBridge completion gate', () => {
         code: 'RUN_ALREADY_ACTIVE',
       }),
     );
+  });
+
+  it.each([
+    ['RISK', () => buildConfirmTool('BLOCK').handler({ action: '删除订单', risk: 'high' })],
+    ['ASK_USER', () => buildAskUserTool('BLOCK').handler({ question: '收件人是谁？' })],
+    ['USER_ACTION', () => buildRequestUserActionTool('BLOCK').handler({ instruction: '完成验证码' })],
+  ] as const)('blocks %s without opening an interaction surface', async (interaction, invoke) => {
+    await expect(invoke()).rejects.toEqual(expect.objectContaining({
+      name: 'InteractionBlockedError',
+      interaction,
+    }));
+    expect(mockShowRiskConfirmOverlay).not.toHaveBeenCalled();
+    expect(mockShowTextInputOverlay).not.toHaveBeenCalled();
   });
 
   it('routes execution-backed informational work to tools without tool-filtering ordinary answers', () => {

@@ -21,6 +21,7 @@ const STORAGE_KEY = '@watchdog/token_stats';
 
 let _global: TokenUsage = { prompt: 0, completion: 0, cached: 0, total: 0 };
 let _task: TokenUsage = { prompt: 0, completion: 0, cached: 0, total: 0 };
+let _persistCurrentTaskToGlobal = true;
 let _loaded = false;
 const _listeners = new Set<() => void>();
 
@@ -49,8 +50,9 @@ async function load(): Promise<void> {
 void load();
 
 /** Reset the per-task counter (called at task start). */
-export function resetTaskTokens(): void {
+export function resetTaskTokens(options: { persistToGlobal?: boolean } = {}): void {
   _task = zero();
+  _persistCurrentTaskToGlobal = options.persistToGlobal !== false;
   notify();
 }
 
@@ -63,12 +65,16 @@ export function addTokens(prompt: number, completion: number, cached = 0): void 
   _task.completion += c;
   _task.cached += ck;
   _task.total += p + c;
-  _global.prompt += p;
-  _global.completion += c;
-  _global.cached += ck;
-  _global.total += p + c;
+  if (_persistCurrentTaskToGlobal) {
+    _global.prompt += p;
+    _global.completion += c;
+    _global.cached += ck;
+    _global.total += p + c;
+  }
   notify();
-  AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(_global)).catch(() => {});
+  if (_persistCurrentTaskToGlobal) {
+    AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(_global)).catch(() => {});
+  }
 }
 
 export function getTaskTokens(): TokenUsage {
