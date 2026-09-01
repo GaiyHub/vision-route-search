@@ -1770,6 +1770,11 @@ export async function processCommand(
     beginTodoFile(traceId, command, {
       outputDirectory: evaluationContext?.artifactDirectory,
       writeArtifact: evaluationContext?.writeArtifact,
+      ...(evaluationContext ? { evaluation: {
+        requestId: evaluationContext.requestId,
+        runId: evaluationContext.runId,
+        sampleId: evaluationContext.sampleId,
+      } } : {}),
     });
   }
   _otelActionSpanId = null;

@@ -23,7 +23,10 @@ describe('todoFileStore evaluation routing', () => {
     const directory = 'file:///storage/emulated/0/Android/data/com.watchdog.agent/files/'
       + 'evaluation/run-1/sample-1/request-1';
     const traceId = 'a'.repeat(32);
-    beginTodoFile(traceId, '执行评测', { outputDirectory: directory });
+    beginTodoFile(traceId, '执行评测', {
+      outputDirectory: directory,
+      evaluation: { requestId: 'request-1', runId: 'run-1', sampleId: 'sample-1' },
+    });
     saveTodos([{
       id: 'todo-1',
       subject: '打开设置',
@@ -38,6 +41,10 @@ describe('todoFileStore evaluation routing', () => {
       traceId,
       goal: '执行评测',
       outcome: 'complete',
+      source: 'EVALUATION',
+      requestId: 'request-1',
+      runId: 'run-1',
+      sampleId: 'sample-1',
       todos: [{ subject: '打开设置', status: 'completed' }],
     });
   });

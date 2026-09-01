@@ -23,6 +23,10 @@ interface TodoFileState {
   updatedAt: number;
   outcome: string | null;
   todos: TodoItem[];
+  source?: 'EVALUATION';
+  requestId?: string;
+  runId?: string;
+  sampleId?: string;
   outputDirectory?: string;
   writeArtifact?: (fileName: string, content: string, append: boolean) => Promise<void>;
 }
@@ -37,6 +41,7 @@ export function beginTodoFile(
   options: {
     outputDirectory?: string;
     writeArtifact?: (fileName: string, content: string, append: boolean) => Promise<void>;
+    evaluation?: { requestId: string; runId: string; sampleId: string };
   } = {},
 ): void {
   _state = {
@@ -48,6 +53,12 @@ export function beginTodoFile(
     todos: [],
     outputDirectory: options.outputDirectory,
     writeArtifact: options.writeArtifact,
+    ...(options.evaluation ? {
+      source: 'EVALUATION',
+      requestId: options.evaluation.requestId,
+      runId: options.evaluation.runId,
+      sampleId: options.evaluation.sampleId,
+    } : {}),
   };
   void write();
 }

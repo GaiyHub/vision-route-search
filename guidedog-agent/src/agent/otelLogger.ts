@@ -129,6 +129,9 @@ function startDefinition(
 ): Pick<OpenSpan, 'name' | 'kind' | 'attributes'> {
   if (requestedName === 'agent.request') {
     const command = typeof input.command === 'string' ? input.command : jsonAttribute(input);
+    const correlation = Object.fromEntries(
+      Object.entries(input).filter(([key]) => key !== 'command'),
+    );
     return {
       name: 'invoke_agent 豆泡',
       kind: 'INTERNAL',
@@ -140,6 +143,7 @@ function startDefinition(
         'gen_ai.input.messages': jsonAttribute([
           { role: 'user', parts: [{ type: 'text', content: command }] },
         ]),
+        ...customAttributes(correlation),
       },
     };
   }

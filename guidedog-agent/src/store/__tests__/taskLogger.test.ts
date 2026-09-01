@@ -143,12 +143,25 @@ describe('unified request trace', () => {
     const outputDirectory = 'file:///storage/emulated/0/Android/data/com.watchdog.agent/files/'
       + 'evaluation/run-1/sample-1/request-1';
     const traceId = beginTrace(
-      { command: '评测任务', source: 'EVALUATION', requestId: 'request-1' },
+      {
+        command: '评测任务',
+        source: 'EVALUATION',
+        requestId: 'request-1',
+        runId: 'run-1',
+        sampleId: 'sample-1',
+      },
       { directory: outputDirectory },
     );
     endTrace('ok', { outcome: 'complete', summary: '完成' });
     await flush(traceId);
 
     expect([...files.keys()]).toEqual([`${outputDirectory}/otel-${traceId}.jsonl`]);
+    const root = JSON.parse(files.values().next().value?.trim() ?? '{}');
+    expect(root.attributes).toMatchObject({
+      'doupao.source': 'EVALUATION',
+      'doupao.request_id': 'request-1',
+      'doupao.run_id': 'run-1',
+      'doupao.sample_id': 'sample-1',
+    });
   });
 });
