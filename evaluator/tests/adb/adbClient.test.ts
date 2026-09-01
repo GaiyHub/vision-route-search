@@ -76,4 +76,20 @@ describe('ADB 请求边界', () => {
     await expect(client.readEvaluationApiVersion('serial-1')).resolves.toBe(1);
     expect(adapter.requests.every((request) => request.args.slice(0, 2).join(' ') === '-s serial-1')).toBe(true);
   });
+
+  it('仅允许读取关联目录中的白名单产物', async () => {
+    const request = evalRequestV1Schema.parse(requestFixture.request);
+    const adapter = new FakeProcessAdapter([ok('{"traceId":"abc"}')]);
+    const client = new AdbClient(adapter);
+    await expect(client.readEvaluationArtifact(
+      'serial-1',
+      request,
+      `todo-${'a'.repeat(32)}.json`,
+      true,
+    )).resolves.toContain('traceId');
+    await expect(client.readEvaluationArtifact('serial-1', request, '../settings.json')).rejects.toMatchObject({
+      code: 'REQUEST_REJECTED',
+    });
+    expect(adapter.requests).toHaveLength(1);
+  });
 });

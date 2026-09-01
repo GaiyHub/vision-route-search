@@ -129,6 +129,25 @@ export class AdbClient {
     }
   }
 
+  async readEvaluationArtifact(
+    serial: string,
+    request: Pick<EvalRequestV1, 'runId' | 'sampleId' | 'requestId'>,
+    fileName: string,
+    optional = false,
+  ): Promise<string | undefined> {
+    if (!/^(?:request\.json|status\.json|otel-[a-f0-9]{32}\.jsonl|todo-[a-f0-9]{32}\.json)$/.test(fileName)) {
+      throw new AdbRunnerError('REQUEST_REJECTED', '评测产物文件名无效', false);
+    }
+    const remotePath = `/sdcard/Android/data/${this.packageName}/files/evaluation/`
+      + `${request.runId}/${request.sampleId}/${request.requestId}/${fileName}`;
+    const result = await this.executeForDevice(serial, ['exec-out', 'cat', remotePath]);
+    if (result.exitCode === 0) return result.stdout;
+    if (optional && /No such file|does not exist/i.test(`${result.stdout}\n${result.stderr}`)) return undefined;
+    throw new AdbRunnerError('EVALUATION_ARTIFACTS_UNAVAILABLE', `无法读取评测产物：${fileName}`, true, {
+      stderr: result.stderr,
+    });
+  }
+
   private assertActivitySucceeded(result: ProcessResult, fallbackMessage: string): void {
     const output = `${result.stdout}\n${result.stderr}`;
     if (result.exitCode === 0 && !/Error:|Exception|Permission Denial/i.test(output)) return;
