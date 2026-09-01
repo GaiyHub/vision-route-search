@@ -13,17 +13,18 @@
 - 每次任务已生成 32 位 `traceId`；`otelLogger` 将 OTel JSONL 双写到应用内部目录和 `/storage/emulated/0/Android/data/com.watchdog.agent/files/tasklogs/otel-<traceId>.jsonl`。
 - Todo 状态已双写到同一 ADB 可读目录下的 `todo-<traceId>.json`，无需评测框架再设计一套过程日志。
 - 当前 `MainActivity` 只有 Launcher Intent；`DeftAgentService` 和各 Receiver 均为 `exported=false`，不存在可从 ADB 提交自然语言任务的稳定入口。
-- 当前 Gradle 只有 `debug/release`，不存在 evaluation Variant；评测能力不能直接加入普通生产构建。
+- 当前 Gradle 只有 `debug/release`；评测框架直接使用用户已安装的普通豆泡 APK，不新增构建变体或覆盖安装流程。
 - Agent 已包含 `wait`、`ui_wait_for_node`、`ui_wait_for_change`、工具内状态轮询、操作后验验证和循环熔断；评测框架只采集这些行为，不重复实现。
 
 ## 实现假设
 
 1. 首版只支持一台已授权真机，单次运行在该设备上串行执行样本。
 2. PC 端新增独立 `evaluator/` 工程，使用 Node.js、TypeScript、React 和 Vite；后端仅监听 `127.0.0.1`。
-3. evaluation APK 与普通豆泡使用同一 `applicationId`，通过覆盖安装复用模型、API Key、工具开关、Skills 与系统权限；评测运行只读这些配置，不允许修改或迁移它们。
+3. 直接使用用户当前安装的普通豆泡 APK，复用其模型、API Key、工具开关、Skills 与系统权限；不新增 APK、构建变体或覆盖安装步骤。
 4. 每个样本使用隔离对话上下文，但不清空或改写普通聊天、会话历史、全局 Token 统计、可恢复任务、应用设置或第三方 App 数据。
 5. 首版遇到风险确认、`ask_user` 或 `request_user_action` 时不自动授权，样本以 `BLOCKED` 结束。
 6. LLM Judge 使用与豆泡运行模型相互独立的 OpenAI-compatible Provider 配置。
+7. 普通 APK 内的评测入口默认关闭；用户在 App 内显式开启短期本地评测会话后，PC 使用会话 ID 与签名提交请求，会话到期或用户关闭后立即失效。
 
 ## 用户故事
 
@@ -45,8 +46,8 @@ Node Evaluator Backend
     └── adb process adapter
              │ explicit evaluation Intent + status/artifact pull
              ▼
-Android evaluation Variant
-    ├── Kotlin EvaluationGateway：Intent 校验、请求缓存、原子状态文件
+Android 用户当前安装的豆泡 APK
+    ├── Kotlin EvaluationGateway：会话认证、Intent 校验、请求缓存、原子状态文件
     └── RN EvaluationBridge：隔离会话、调用 processCommand、映射交互终态
              │
              ▼
@@ -94,8 +95,8 @@ guidedog-agent/
 ## 核心执行语义
 
 - PC 为每个样本生成不可变 `runId`、`sampleId`、`requestId` 和 `requestHash`，它们构成评测数据的隔离键。
-- 指令通过 evaluation Variant 的显式 Intent 传入；payload 使用 Base64URL 编码并设置大小上限，避免中文、引号和换行的 Shell 转义问题。
-- Kotlin 层验证构建开关、Schema、ID、hash 和长度，将请求缓存到 RN 就绪后消费；同一 `requestId + requestHash` 只执行一次。
+- 指令通过普通 APK 的受控显式 Intent 传入；payload 使用 Base64URL 编码并设置大小上限，避免中文、引号和换行的 Shell 转义问题。
+- Kotlin 层先验证短期评测会话及请求签名，再校验 Schema、ID、hash 和长度，将请求缓存到 RN 就绪后消费；同一 `requestId + requestHash` 只执行一次。
 - RN 层以 `conversationMode='isolated'` 调用 `processCommand`：直接传入空历史但不调用 `clearMessages()`；评测消息不写入 chat/history，全局 Token 统计不累计，普通可恢复任务键不读写。
 - OTel 根 Span 与 Todo 产物写入 `source=EVALUATION`、`runId`、`sampleId`、`requestId` 和 `traceId`；PC 端再保存到独立 Run/Sample 目录，禁止按时间戳猜测归属。
 - `processCommand` 返回包含完整 `summary`、`outcome`、`traceId`、耗时、步数及本次评测 Token 用量的结构化结果。
@@ -124,7 +125,7 @@ npm run typecheck
 npm test -- --runInBand --forceExit
 ```
 
-Plan 阶段必须确定并记录 evaluation APK 的实际 Gradle 命令；普通 Release 构建继续使用：
+移动端继续使用现有普通 Release 构建，不增加额外 APK 构建命令：
 
 ```bash
 cd guidedog-agent/android
@@ -159,7 +160,7 @@ type SampleState =
 - Fake ADB 集成测试：无设备、多设备、未授权、重复请求、异常状态、设备断开、Trace 部分写入。
 - RN 测试：隔离会话、结构化结果、自动完成、三类人工交互映射为 `BLOCKED`，聊天模式行为不变。
 - 数据隔离测试：评测前后的 Settings、Model Profile、API Key、Skills、Favorites、Chat、History、全局 Token 与普通 resumable key 保持字节等价；评测产物均带完整隔离 ID。
-- Kotlin 测试：仅 evaluation Variant 接收 Intent、payload 校验、幂等冲突、RN 未就绪缓存与原子状态写入。
+- Kotlin 测试：关闭/过期/签名错误的会话拒绝请求，合法会话完成 payload 校验、幂等冲突、RN 未就绪缓存与原子状态写入。
 - 真机验收：至少运行一个普通问答样本、一个 GUI 操作样本、一个预期 `BLOCKED` 样本，并生成报告。
 
 ## 安全边界
@@ -172,6 +173,7 @@ type SampleState =
 - Judge API key 仅保存在后端进程内存或环境变量中。
 - 原始证据不可变，标准化结果和摘要单独保存。
 - 设备端用户配置与普通用户数据在 evaluation 运行期间只读。
+- 评测入口默认关闭；每次开启均需要用户在 App 内明确操作，并使用短期会话凭证认证请求。
 
 ### 需先确认
 
@@ -182,7 +184,7 @@ type SampleState =
 
 ### 禁止
 
-- 在普通生产构建中暴露评测 Intent 或自动化入口。
+- 在未开启有效评测会话时接受评测请求，或提供无认证的自动化入口。
 - 从 evaluation 运行写入或清除用户配置、普通聊天、会话历史、全局 Token 统计或普通可恢复任务。
 - 自动批准高风险操作、`ask_user` 或 `request_user_action`。
 - 将 Judge 网络、认证或解析错误记为产品失败。
@@ -202,6 +204,6 @@ type SampleState =
 
 ## 已确认约束
 
-- evaluation APK 与普通豆泡使用相同 `applicationId`，覆盖安装但不影响任何用户配置。
+- 直接使用用户当前安装的普通豆泡 APK，不新增 evaluation Variant、独立 APK 或覆盖安装流程。
 - 首版 WebUI 不编辑豆泡模型、API Key、Skills 或工具配置，只读取设备端现有配置执行评测。
 - 评测数据通过 `runId/sampleId/requestId/traceId` 隔离；普通聊天与评测上下文互不进入对方历史。

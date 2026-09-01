@@ -4,7 +4,7 @@
 
 - [x] 用户批准 `tasks/plan.md`，进入实施阶段（2026-09-01）。
 - [x] Task 1 已完成：固化跨端评测契约与 Fixture。
-- [ ] 当前任务：Task 2——增加 evaluation Build Type。
+- [ ] 当前任务：Task 2——实现普通 APK 的评测会话授权。
 
 ## 阶段 A：契约与 Android/RN 单样本闭环
 
@@ -23,20 +23,20 @@
 
 **文件范围：** `guidedog-agent/src/evaluation/`、`specs/pc-batch-evaluation/fixtures/`
 
-### Task 2：增加 evaluation Build Type（S）
+### Task 2：实现普通 APK 的评测会话授权（M）
 
-**描述：** 通过 Expo 配置插件增加同 `applicationId` 的 `evaluation` Build Type、`BuildConfig.EVALUATION_ENABLED` 和构建内评测模式标识，普通构建保持关闭。
+**描述：** 不新增 APK 或 Build Type；在普通豆泡内提供默认关闭、用户显式开启且可过期/撤销的本地评测会话，生成配对密钥并验证请求 HMAC。
 
 **验收标准：**
-- [ ] `evaluation` 继承 release 行为、使用兼容签名且无 `applicationIdSuffix`。
-- [ ] debug/release 的 `EVALUATION_ENABLED=false`，仅 evaluation 为 `true`。
-- [ ] Expo prebuild 后配置可重复生成，不依赖手改生成文件。
+- [ ] 普通豆泡未开启会话时拒绝所有评测请求，开启、过期和关闭状态可明确查询。
+- [ ] 配对密钥仅展示一次且不进入 Intent、日志、状态或报告；签名错误和过期请求在 Kotlin 边界被拒绝。
+- [ ] 普通 release 构建与安装流程保持不变，App 在会话有效期间明确显示本地评测状态。
 
-**验证：** `cd guidedog-agent/android && NODE_ENV=production ./gradlew :app:assembleEvaluation :app:assembleRelease`
+**验证：** RN/Kotlin 会话测试通过；`cd guidedog-agent/android && NODE_ENV=production ./gradlew :app:assembleRelease`
 
 **依赖：** Task 1
 
-**文件范围：** `guidedog-agent/plugins/withDeftForegroundService.js`、生成的 Android Gradle 配置
+**文件范围：** `guidedog-agent/plugins/android/`、`guidedog-agent/src/evaluation/`、设置页最小评测会话入口与测试
 
 ### Task 3：实现 Kotlin 请求存储（M）
 
@@ -47,7 +47,7 @@
 - [ ] 请求只写入受限的 evaluation 目录，非法 ID、大小和 Schema 均被稳定错误码拒绝。
 - [ ] RN 未就绪时保留一个可原子消费的待处理请求。
 
-**验证：** `cd guidedog-agent/android && ./gradlew :app:testEvaluationUnitTest`
+**验证：** `cd guidedog-agent/android && ./gradlew :app:testReleaseUnitTest`
 
 **依赖：** Task 1、Task 2
 
@@ -55,14 +55,14 @@
 
 ### Task 4：接入 Activity Intent 与 Native Module（M）
 
-**描述：** 仅在 evaluation 构建中处理显式 evaluate/cancel Intent，并通过现有 Native Module 暴露 consume、状态写入和取消事件。
+**描述：** 在普通 APK 中处理经过有效会话认证的显式 evaluate/cancel Intent，并通过现有 Native Module 暴露 consume、状态写入和取消事件。
 
 **验收标准：**
 - [ ] 冷启动和 `onNewIntent` 都能提交请求，消费 API 是唯一事实来源。
-- [ ] 普通 release 忽略评测 action，且不新增 exported Receiver。
+- [ ] 未开启、已过期或认证失败的请求被普通 APK 拒绝，且不新增 exported Receiver。
 - [ ] cancel 只影响匹配的当前 `requestId`，重复取消幂等。
 
-**验证：** Kotlin 单测通过；`assembleEvaluation` 与 `assembleRelease` 均成功。
+**验证：** Kotlin 单测通过；`assembleRelease` 成功。
 
 **依赖：** Task 3
 
@@ -115,9 +115,9 @@
 
 ### Checkpoint A：移动端单样本闭环
 
-- [ ] evaluation 与 release 均构建成功。
+- [ ] 普通 release 构建成功，未产生额外 APK 变体。
 - [ ] 真机普通问答完成，Trace 在终态前落盘。
-- [ ] 普通用户数据零写入，release 不响应评测 action。
+- [ ] 普通用户数据零写入，会话关闭后不响应评测 action。
 
 ## 阶段 B：PC 最小运行器
 
@@ -264,7 +264,7 @@
 
 ### Task 18：真机验收与文档（M）
 
-**描述：** 执行问答、GUI、预期 BLOCKED 三类样本及故障回归，补齐构建、覆盖安装、评测与恢复 release 文档。
+**描述：** 使用用户当前安装的普通 APK 执行问答、GUI、预期 BLOCKED 三类样本及故障回归，补齐会话配对、评测和关闭文档。
 
 **验收标准：** WebUI 无需终端完成主流程；普通 release/chat 行为不变；评测前后用户配置与普通数据一致；报告完整可审计。
 

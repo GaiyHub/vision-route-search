@@ -5,7 +5,7 @@
 | 模块 ID | 职责 | 复用的现有实现 | 依赖 |
 | --- | --- | --- | --- |
 | `eval-dataset` | 定义、校验、导入并持久化评测集与样本。 | 无 | — |
-| `doupao-eval-bridge` | 为评测 APK 提供 ADB 指令入口、运行策略和结构化状态出口。 | `processCommand`、`agentStore`、`chatStore`、`otelLogger`、`todoFileStore` | — |
+| `doupao-eval-bridge` | 为用户当前安装的豆泡 APK 提供受控 ADB 指令入口、隔离运行策略和结构化状态出口。 | `processCommand`、`agentStore`、`chatStore`、`otelLogger`、`todoFileStore` | — |
 | `adb-runner` | 发现指定设备，通过显式 Intent 驱动一个样本，并轮询评测状态。 | Android SDK `adb` | `doupao-eval-bridge` |
 | `evidence-collector` | 拉取现有 OTel/Todo 文件，并采集最终截图、UI 层级和前台包名。 | `tasklogs/otel-<traceId>.jsonl`、`tasklogs/todo-<traceId>.json` | `adb-runner` |
 | `assertion-engine` | 基于标准化证据执行确定性断言。 | 无 | `eval-dataset`、`evidence-collector` |
@@ -31,5 +31,5 @@ eval-dataset + doupao-eval-bridge
 - PC 端不得解析豆泡 UI 来判断任务是否完成；以 `EvalStatusV1` 为唯一生命周期事实来源。
 - `doupao-eval-bridge` 只负责控制与结果关联，不复制 AgentLoop、工具体系或已有 OTel 日志；评测运行对用户配置和普通用户数据保持零写入。
 - 所有评测产物必须通过 `runId/sampleId/requestId/traceId` 隔离并可验证关联，不与普通聊天历史混用。
-- 评测入口只存在于 evaluation Variant；普通 APK 不声明评测 Intent，不接受评测请求。
+- 不新增 evaluation Variant 或独立 APK；评测入口随普通豆泡 APK 发布，但默认关闭，仅在用户显式开启的短期本地评测会话内接受已认证请求。
 - 依赖只按图中方向流动，Provider 模块负责定义跨模块契约。

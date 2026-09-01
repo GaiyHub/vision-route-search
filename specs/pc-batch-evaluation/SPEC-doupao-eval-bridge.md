@@ -11,16 +11,17 @@
 - OTel/Todo 已写入 ADB 可读的 `Android/data/com.watchdog.agent/files/tasklogs/`；桥接层不得复制工具事件。
 - `plugins/android/` 是 Kotlin 源文件事实来源，`android/app/src/main/` 是 Expo 配置插件生成产物。
 
-## 构建隔离
+## 普通 APK 内的入口隔离
 
-- 新增 evaluation Variant 或等价的编译期开关 `BuildConfig.EVALUATION_ENABLED`。
-- 只有 evaluation 构建声明并处理评测 Intent；普通构建不得暴露该 action、Receiver 或处理分支。
-- App 内须清晰显示“评测模式”，防止将评测包误认为正式包。
-- evaluation 与普通豆泡使用相同 `applicationId` 和兼容签名，通过覆盖安装保留现有配置；不得使用 `applicationIdSuffix` 创建另一份配置空间。
+- 不新增 evaluation Variant、独立 APK、`applicationIdSuffix` 或覆盖安装流程；直接使用用户当前安装的普通豆泡 APK。
+- 评测入口随普通 APK 发布但默认关闭；用户必须在 App 内显式开启一个有过期时间的本地评测会话，并可随时关闭。
+- 开启会话时生成随机 `sessionId` 和仅展示一次的配对密钥；PC 端使用该密钥对 `requestId + requestHash` 生成 HMAC-SHA256 签名，密钥本身不随 Intent 传输。
+- 会话 ID、签名和 payload 组成传输信封；会话关闭、过期、签名错误或重放窗口超限时，Kotlin 边界在进入 RN 前拒绝请求。
+- App 在会话有效期间清晰显示“本地评测已开启”，普通聊天和设置仍可使用。
 
 ## ADB 请求契约
 
-PC 使用显式 Activity Intent 启动或唤醒 evaluation APK。请求 JSON 先做 UTF-8 编码，再使用 Base64URL 作为单一 extra 传递，避免中文和特殊字符转义问题。
+PC 使用显式 Activity Intent 启动或唤醒用户已安装的普通豆泡 APK。请求 JSON 先做 UTF-8 编码，再使用 Base64URL 作为单一 payload extra；会话 ID 与签名使用独立 extra，避免中文和特殊字符转义问题，且不把配对密钥放入命令参数。
 
 ```ts
 interface EvalRequestV1 {
@@ -43,11 +44,11 @@ interface EvalRequestV1 {
 
 ## Kotlin EvaluationGateway
 
-- `MainActivity` 仅在 evaluation 构建中识别评测 action，并将 payload 交给 `EvaluationRequestStore`。
+- `MainActivity` 识别评测 action 后，先由 `EvaluationSessionStore` 验证会话 ID、过期时间和签名，再将 payload 交给 `EvaluationRequestStore`。
 - RN 尚未就绪时，Native Store 保留一个待消费请求；RN 就绪后通过 Native Module 主动 consume。
 - RN 已就绪时，可发出 `evaluation-request` 事件，但 consume API 仍是恢复和去重的事实来源。
 - 请求、当前状态和最终状态写入应用 external files 下的 `evaluation/<runId>/<sampleId>/<requestId>/`，采用临时文件加 rename 的原子写入策略。
-- Kotlin 边界负责 Base64URL、JSON Schema、大小、ID、hash 和构建开关校验。
+- Kotlin 边界负责会话认证、Base64URL、JSON Schema、大小、ID 和 hash 校验。
 
 ## RN 执行契约
 
@@ -100,7 +101,7 @@ type EvalStatusV1 =
 
 ## 取消
 
-- PC 超时或用户取消时，通过 evaluation-only cancel Intent 传递 `requestId`。
+- PC 超时或用户取消时，通过同一评测会话认证的 cancel Intent 传递 `requestId`。
 - 只有当前活动 ID 匹配时才调用现有 `stopAgent()`；重复取消保持幂等。
 - 取消不能自动启动后续待处理请求。
 
@@ -113,4 +114,4 @@ type EvalStatusV1 =
 - 普通聊天模式的连续对话、完成确认和人工卡控行为保持不变。
 - evaluation 执行前后，用户配置、普通聊天、历史、全局 Token 统计和普通 resumable 数据保持不变。
 - 每份 evaluation status、OTel 与 Todo 均包含或可验证完整的 `runId/sampleId/requestId/traceId` 关联。
-- 普通 Release APK 无法通过评测 action 启动 Agent 任务。
+- 未开启有效评测会话的普通 APK 无法通过评测 action 启动 Agent 任务；关闭会话不影响普通聊天能力。
