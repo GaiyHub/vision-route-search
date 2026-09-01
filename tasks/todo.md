@@ -3,7 +3,8 @@
 ## 当前阶段：Implement
 
 - [x] 用户批准 `tasks/plan.md`，进入实施阶段（2026-09-01）。
-- [ ] 当前任务：Task 1——固化跨端评测契约与 Fixture。
+- [x] Task 1 已完成：固化跨端评测契约与 Fixture。
+- [ ] 当前任务：Task 2——增加 evaluation Build Type。
 
 ## 阶段 A：契约与 Android/RN 单样本闭环
 
@@ -12,9 +13,9 @@
 **描述：** 定义版本化的 `EvalRequestV1`、`EvalStatusV1`、`CommandExecutionResult`、ID/大小限制与稳定错误码，并用包含中文、引号、反斜杠和换行的共享 Fixture 锁定编码及校验语义。
 
 **验收标准：**
-- [ ] RN 侧可解析合法请求和全部状态联合类型，并拒绝未知版本、非法 ID、超限内容与不一致字段。
-- [ ] Base64URL 往返不损坏任意合法 UTF-8 指令，`requestHash` 的规范化输入定义唯一。
-- [ ] 共享 JSON Fixture 可供 RN、Kotlin和 PC 后续契约测试复用。
+- [x] RN 侧可解析合法请求和全部状态联合类型，并拒绝未知版本、非法 ID、超限内容与不一致字段。
+- [x] Base64URL 往返不损坏任意合法 UTF-8 指令，`requestHash` 的规范化输入定义唯一。
+- [x] 共享 JSON Fixture 可供 RN、Kotlin和 PC 后续契约测试复用。
 
 **验证：** `cd guidedog-agent && npm run typecheck && npm test -- --runInBand --forceExit src/evaluation`
 

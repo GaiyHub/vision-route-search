@@ -1,0 +1,90 @@
+{
+  "statuses": [
+    {
+      "schemaVersion": 1,
+      "requestId": "req-eval-0001",
+      "runId": "run-smoke-20260901",
+      "sampleId": "unicode-command",
+      "state": "ACCEPTED",
+      "updatedAt": "2026-09-01T10:00:00.000Z"
+    },
+    {
+      "schemaVersion": 1,
+      "requestId": "req-eval-0001",
+      "runId": "run-smoke-20260901",
+      "sampleId": "unicode-command",
+      "state": "RUNNING",
+      "traceId": "0123456789abcdef0123456789abcdef",
+      "startedAt": "2026-09-01T10:00:01.000Z",
+      "updatedAt": "2026-09-01T10:00:01.000Z"
+    },
+    {
+      "schemaVersion": 1,
+      "requestId": "req-eval-0001",
+      "runId": "run-smoke-20260901",
+      "sampleId": "unicode-command",
+      "state": "COMPLETED",
+      "result": {
+        "outcome": "complete",
+        "summary": "当前时间为 18:00。",
+        "traceId": "0123456789abcdef0123456789abcdef",
+        "startedAt": "2026-09-01T10:00:01.000Z",
+        "finishedAt": "2026-09-01T10:00:03.500Z",
+        "durationMs": 2500,
+        "stepCount": 1,
+        "actionCount": 0,
+        "tokens": { "prompt": 100, "completion": 20, "total": 120, "cached": 60 }
+      },
+      "updatedAt": "2026-09-01T10:00:03.500Z"
+    },
+    {
+      "schemaVersion": 1,
+      "requestId": "req-eval-0002",
+      "runId": "run-smoke-20260901",
+      "sampleId": "risk-command",
+      "state": "BLOCKED",
+      "result": {
+        "outcome": "blocked",
+        "summary": "需要用户授权高风险操作。",
+        "traceId": "fedcba9876543210fedcba9876543210",
+        "startedAt": "2026-09-01T10:01:00.000Z",
+        "finishedAt": "2026-09-01T10:01:02.000Z",
+        "durationMs": 2000,
+        "stepCount": 1,
+        "actionCount": 1,
+        "tokens": { "prompt": 80, "completion": 15, "total": 95 },
+        "blockedInteraction": "RISK"
+      },
+      "updatedAt": "2026-09-01T10:01:02.000Z"
+    },
+    {
+      "schemaVersion": 1,
+      "requestId": "req-eval-0003",
+      "runId": "run-smoke-20260901",
+      "sampleId": "timeout-command",
+      "state": "TIMED_OUT",
+      "traceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "reason": "样本执行超时",
+      "updatedAt": "2026-09-01T10:05:00.000Z"
+    },
+    {
+      "schemaVersion": 1,
+      "requestId": "req-eval-0004",
+      "runId": "run-smoke-20260901",
+      "sampleId": "cancel-command",
+      "state": "CANCELLED",
+      "reason": "用户取消运行",
+      "updatedAt": "2026-09-01T10:06:00.000Z"
+    },
+    {
+      "schemaVersion": 1,
+      "requestId": "req-eval-0005",
+      "runId": "run-smoke-20260901",
+      "sampleId": "error-command",
+      "state": "ERROR",
+      "code": "RUN_ALREADY_ACTIVE",
+      "message": "已有任务运行中",
+      "updatedAt": "2026-09-01T10:07:00.000Z"
+    }
+  ]
+}

@@ -1,6 +1,7 @@
 export const EVALUATION_SCHEMA_VERSION = 1 as const;
 export const EVALUATION_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 export const EVALUATION_HASH_PATTERN = /^[a-f0-9]{64}$/;
+export const EVALUATION_TRACE_ID_PATTERN = /^[a-f0-9]{32}$/;
 export const EVALUATION_INSTRUCTION_MAX_BYTES = 32 * 1024;
 export const EVALUATION_PAYLOAD_MAX_BYTES = 64 * 1024;
 export const EVALUATION_TIMEOUT_MIN_MS = 1_000;
