@@ -165,6 +165,39 @@ function withAbiFilter(config) {
   });
 }
 
+/** Add a release-like evaluation build without changing the application id. */
+function patchEvaluationBuildType(contents) {
+  let next = contents;
+  if (!next.includes('buildConfigField "boolean", "EVALUATION_ENABLED"')) {
+    next = next.replace(
+      /(buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL"[^\n]*\n)/,
+      '$1        buildConfigField "boolean", "EVALUATION_ENABLED", "false"\n',
+    );
+  }
+  if (!/\n\s*evaluation\s*\{/.test(next)) {
+    next = next.replace(
+      /\n    \}\n    packagingOptions \{/,
+      `
+        evaluation {
+            initWith release
+            signingConfig signingConfigs.debug
+            matchingFallbacks = ['release']
+            buildConfigField "boolean", "EVALUATION_ENABLED", "true"
+        }
+    }
+    packagingOptions {`,
+    );
+  }
+  return next;
+}
+
+function withEvaluationBuildType(config) {
+  return withAppBuildGradle(config, (cfg) => {
+    cfg.modResults.contents = patchEvaluationBuildType(cfg.modResults.contents);
+    return cfg;
+  });
+}
+
 /**
  * Keep the JS entry of the local accessibility-controller package synchronized
  * before Metro creates an Android bundle. The package's `main` points at
@@ -432,6 +465,7 @@ const withDeftForegroundService = (config) => {
   config = withManifest(config);
   config = withKotlinFiles(config);
   config = withAndroidBuildProperties(config);
+  config = withEvaluationBuildType(config);
   config = withAbiFilter(config);
   config = withAccessibilityControllerJsBuild(config);
   config = withShellKotlinBuildSync(config);
@@ -440,3 +474,4 @@ const withDeftForegroundService = (config) => {
 };
 
 module.exports = withDeftForegroundService;
+module.exports.patchEvaluationBuildType = patchEvaluationBuildType;
