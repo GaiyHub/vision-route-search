@@ -1,0 +1,53 @@
+{
+  "expo": {
+    "name": "豆泡",
+    "slug": "watchdog",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": false,
+    "splash": {
+      "resizeMode": "contain",
+      "backgroundColor": "#F6F7F9"
+    },
+    "ios": {
+      "supportsTablet": false
+    },
+    "android": {
+      "package": "com.watchdog.agent",
+      "versionCode": 1,
+      "minSdkVersion": 26,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#FFFFFF"
+      },
+      "edgeToEdgeEnabled": true,
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "com.android.alarm.permission.SET_ALARM",
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_SPECIAL_USE",
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.QUERY_ALL_PACKAGES",
+        "android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"
+      ]
+    },
+    "web": {},
+    "plugins": [
+      "./plugins/withDeftForegroundService",
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "豆泡使用麦克风听取你的语音指令。",
+          "speechRecognitionPermission": "豆泡使用语音识别理解你的语音指令。"
+        }
+      ],
+      "expo-font"
+    ]
+  }
+}

@@ -1,0 +1,10 @@
+--- a/libbb/appletlib.c
++++ b/libbb/appletlib.c
+@@ -977,7 +977,7 @@ static NORETURN void run_applet_and_exit(const char *name, char **argv)
+ {
+ #  if ENABLE_BUSYBOX
+-	if (is_prefixed_with(name, "busybox"))
++	if (is_prefixed_with(name, "busybox") || strcmp(name, "libbusybox.so") == 0)
+ 		exit(busybox_main(/*unused:*/ 0, argv));
+ #  endif
+ #  if NUM_APPLETS > 0

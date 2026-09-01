@@ -1,0 +1,90 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+jobs:
+  build-apk:
+    name: Build APK
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      # Checkout deft and its local-file dependencies together so that
+      # `npm install` can resolve the `file:../react-native-*` paths.
+      # Once the packages are published to npm, replace these checkouts
+      # with the published versions and switch back to `npm ci`.
+      - name: Checkout deft
+        uses: actions/checkout@v4
+        with:
+          path: deft
+
+      - name: Checkout react-native-device-agent
+        uses: actions/checkout@v4
+        with:
+          repository: bedda-tech/react-native-device-agent
+          path: react-native-device-agent
+
+      - name: Checkout react-native-accessibility-controller
+        uses: actions/checkout@v4
+        with:
+          repository: bedda-tech/react-native-accessibility-controller
+          path: react-native-accessibility-controller
+
+      - name: Checkout react-native-executorch
+        uses: actions/checkout@v4
+        with:
+          repository: bedda-tech/react-native-executorch
+          path: react-native-executorch
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      # Pre-install executorch devDeps so that bob is available when npm install
+      # runs the package's `prepare` script (bob build) as a file: dependency.
+      # npm does not install devDependencies of file: packages automatically.
+      - name: Build react-native-executorch
+        working-directory: react-native-executorch/packages/react-native-executorch
+        run: |
+          npm install --ignore-scripts --no-workspaces
+          npx react-native-builder-bob build
+
+      - name: Install dependencies
+        working-directory: deft
+        run: npm install --ignore-scripts
+
+      # expo prebuild generates the android/ native project from app.json + plugins.
+      # This is fully offline — no Expo account or EXPO_TOKEN needed.
+      - name: Expo Prebuild
+        working-directory: deft
+        run: npx expo prebuild --platform android --non-interactive
+
+      - name: Build APK (preview)
+        working-directory: deft/android
+        run: ./gradlew :app:assembleDebug -PreactNativeArchitectures=arm64-v8a -Pandroid.minSdkVersion=26
+        env:
+          GRADLE_OPTS: -Dorg.gradle.daemon=false
+
+      - name: Collect APK
+        run: cp deft/android/app/build/outputs/apk/debug/app-debug.apk deft-${{ github.ref_name }}.apk
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: deft-${{ github.ref_name }}.apk
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
