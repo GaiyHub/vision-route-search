@@ -4,7 +4,7 @@
 
 - [x] 用户批准 `tasks/plan.md`，进入实施阶段（2026-09-01）。
 - [x] Task 1 已完成：固化跨端评测契约与 Fixture。
-- [ ] 当前任务：Task 10——实现 ADB Runner 的 PC/Fake ADB 部分（PC-first）。
+- [ ] 当前任务：Task 12—16——补齐证据、断言、Judge 与报告；手机 APK 接入继续使用 Mock 边界。
 - [ ] Android/RN Task 2—7 暂缓；PC 端先基于共享 Fixture 和 Fake ADB 完成可测试边界，真机闭环阶段再接入普通 APK。
 
 ## 阶段 A：契约与 Android/RN 单样本闭环
@@ -170,6 +170,8 @@
 
 **验收标准：** `POST /api/runs` 可执行一个样本；`GET /api/runs/:runId` 可在刷新后恢复；错误体符合 `ApiErrorV1`。
 
+**进度：** [x] Mock 闭环已完成（2026-09-01）：设备/评测集 API、Run 创建/查询/取消、串行执行及文件持久化；[ ] 真机 Sample 待 APK 接口接入。
+
 **验证：** Fake ADB API 集成测试及一条真机 Sample 通过。
 
 **依赖：** Task 9、Task 10
@@ -260,6 +262,8 @@
 ### Task 17：实现本地 WebUI 与 SSE（M）
 
 **描述：** 完成评测集、设备、Judge、运行进度、样本详情、报告历史和失败重跑主流程。
+
+**进度：** [x] Mock 主流程已完成（2026-09-01）：评测集与样本选择、Mock 设备状态、启动/取消、进度轮询和结果展开；[ ] SSE、Judge 配置、报告历史与证据详情随对应后端能力接入。
 
 **验收标准：** readiness 不满足时明确禁用启动；SSE 按 sequence 恢复；大型证据按需加载；刷新不丢状态。
 

@@ -7,7 +7,10 @@
     "node": ">=20"
   },
   "scripts": {
-    "dev": "vite",
+    "dev": "concurrently -k -n api,web \"npm:dev:server\" \"npm:dev:web\"",
+    "dev:server": "tsx watch src/server/index.ts",
+    "dev:web": "vite",
+    "start": "tsx src/server/index.ts",
     "build": "tsc -b && vite build",
     "typecheck": "tsc -b --pretty false",
     "test": "vitest run"
@@ -21,11 +24,14 @@
     "zod": "4.1.5"
   },
   "devDependencies": {
+    "@testing-library/dom": "10.4.1",
     "@testing-library/react": "16.3.3",
     "@types/node": "26.4.0",
     "@types/react": "19.2.18",
     "@types/react-dom": "19.2.5",
     "@vitejs/plugin-react": "6.1.1",
+    "concurrently": "10.0.5",
+    "jsdom": "30.0.1",
     "tsx": "4.23.13",
     "typescript": "7.0.2",
     "vite": "8.2.2",
