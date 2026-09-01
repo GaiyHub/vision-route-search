@@ -27,6 +27,7 @@ export const sampleRunSchema = z.object({
     collectedAt: z.string(),
     files: z.object({
       request: z.string(), status: z.string(), otel: z.string().optional(), todo: z.string().optional(),
+      trace: z.string().optional(), metrics: z.string().optional(),
     }).strict(),
     warnings: z.array(z.string()),
   }).strict().optional(),

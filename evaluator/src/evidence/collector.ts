@@ -9,6 +9,7 @@ import {
   type EvalStatusV1,
 } from '../contracts/evaluation.js';
 import { writeJsonAtomic } from '../storage/atomicFile.js';
+import { normalizeEvaluationEvidence } from './normalizer.js';
 
 export interface EvidenceManifest {
   schemaVersion: 1;
@@ -17,7 +18,7 @@ export interface EvidenceManifest {
   sampleId: string;
   traceId?: string;
   collectedAt: string;
-  files: { request: string; status: string; otel?: string; todo?: string };
+  files: { request: string; status: string; otel?: string; todo?: string; trace?: string; metrics?: string };
   warnings: string[];
 }
 
@@ -46,6 +47,11 @@ export class EvidenceCollector {
       validateOtel(otelRaw, request, traceId);
       await writeImmutable(join(rawDirectory, otelName), otelRaw);
       files.otel = `raw/${otelName}`;
+      const normalized = normalizeEvaluationEvidence(request, storedStatus, otelRaw);
+      await writeJsonAtomic(join(normalizedDirectory, 'trace.json'), normalized.trace);
+      await writeJsonAtomic(join(normalizedDirectory, 'metrics.json'), normalized.metrics);
+      files.trace = 'normalized/trace.json';
+      files.metrics = 'normalized/metrics.json';
 
       const todoName = `todo-${traceId}.json`;
       const todoRaw = await this.adb.readEvaluationArtifact(serial, request, todoName, true);

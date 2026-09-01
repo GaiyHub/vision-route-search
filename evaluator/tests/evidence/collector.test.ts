@@ -31,18 +31,43 @@ function fixture() {
     result: {
       outcome: 'complete', summary: '完成', traceId,
       startedAt: '2026-09-02T00:00:00.000Z', finishedAt: '2026-09-02T00:00:01.000Z',
-      durationMs: 1_000, stepCount: 0, actionCount: 0,
-      tokens: { prompt: 10, completion: 2, total: 12 },
+      durationMs: 1_000, stepCount: 1, actionCount: 1,
+      tokens: { prompt: 100, completion: 20, total: 120, cached: 80 },
     },
   });
-  const otel = `${JSON.stringify({
+  const model = {
+    traceId, spanId: 'c'.repeat(16), parentSpanId: 'b'.repeat(16), name: 'chat doubao',
+    startTimeUnixNano: '1788307200100000000', endTimeUnixNano: '1788307200600000000',
+    attributes: {
+      'gen_ai.operation.name': 'chat', 'gen_ai.request.model': 'doubao',
+      'gen_ai.provider.name': 'openai_compatible', 'doupao.agent.round': 1, 'doupao.agent.step': 0,
+      'gen_ai.input.messages': JSON.stringify([{ role: 'user', content: [{ type: 'text', text: '评测任务' }] }]),
+      'gen_ai.output.messages': JSON.stringify({ content: [{ type: 'tool_call', name: 'wait', arguments: { ms: 100 } }] }),
+      'gen_ai.usage.input_tokens': 100, 'gen_ai.usage.output_tokens': 20,
+      'gen_ai.usage.cache_read.input_tokens': 80,
+    },
+    status: { code: 'UNSET' },
+  };
+  const tool = {
+    traceId, spanId: 'd'.repeat(16), parentSpanId: 'b'.repeat(16), name: 'execute_tool wait',
+    startTimeUnixNano: '1788307200700000000', endTimeUnixNano: '1788307200800000000',
+    attributes: {
+      'gen_ai.operation.name': 'execute_tool', 'gen_ai.tool.name': 'wait',
+      'doupao.agent.step': 1, 'gen_ai.tool.call.arguments': JSON.stringify({ ms: 100 }),
+      'gen_ai.tool.call.result': JSON.stringify({ ok: true }),
+    },
+    status: { code: 'UNSET' },
+  };
+  const root = {
     traceId, spanId: 'b'.repeat(16), parentSpanId: null, name: 'invoke_agent 豆泡',
-    endTimeUnixNano: '1',
+    startTimeUnixNano: '1788307200000000000', endTimeUnixNano: '1788307201000000000',
     attributes: {
       'doupao.source': 'EVALUATION', 'doupao.request_id': request.requestId,
       'doupao.run_id': request.runId, 'doupao.sample_id': request.sampleId,
     },
-  })}\n`;
+    events: [{ name: 'thinking', timeUnixNano: '1788307200650000000', attributes: { 'doupao.content': '准备等待' } }],
+  };
+  const otel = `${[model, tool, root].map((record) => JSON.stringify(record)).join('\n')}\n`;
   const todo = JSON.stringify({
     traceId, source: 'EVALUATION', requestId: request.requestId,
     runId: request.runId, sampleId: request.sampleId, todos: [],
@@ -65,6 +90,16 @@ describe('EvidenceCollector', () => {
     expect(manifest).toMatchObject({ requestId: 'request-1', traceId, warnings: [] });
     const raw = join(root, 'runs', 'run-1', 'samples', 'sample-1', 'raw');
     await expect(readFile(join(raw, `otel-${traceId}.jsonl`), 'utf8')).resolves.toBe(otel);
+    const normalized = join(root, 'runs', 'run-1', 'samples', 'sample-1', 'normalized');
+    const trace = JSON.parse(await readFile(join(normalized, 'trace.json'), 'utf8'));
+    expect(trace.events.map((event: { type: string }) => event.type)).toEqual([
+      'USER_INPUT', 'MODEL_CALL', 'AGENT_EVENT', 'TOOL_CALL',
+    ]);
+    const metrics = JSON.parse(await readFile(join(normalized, 'metrics.json'), 'utf8'));
+    expect(metrics).toMatchObject({
+      success: true, stepCount: 1, modelCallCount: 1, toolCallCount: 1,
+      cacheHitRate: 0.8, toolSuccessRate: 1,
+    });
     await expect(collector.collect('serial-1', request, status)).resolves.toMatchObject({ traceId });
   });
 
