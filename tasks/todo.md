@@ -4,7 +4,8 @@
 
 - [x] 用户批准 `tasks/plan.md`，进入实施阶段（2026-09-01）。
 - [x] Task 1 已完成：固化跨端评测契约与 Fixture。
-- [ ] 当前任务：Task 2——实现普通 APK 的受保护评测入口。
+- [ ] 当前任务：Task 9——实现评测集加载、校验与快照（PC-first）。
+- [ ] Android/RN Task 2—7 暂缓；PC 端先基于共享 Fixture 和 Fake ADB 完成可测试边界，真机闭环阶段再接入普通 APK。
 
 ## 阶段 A：契约与 Android/RN 单样本闭环
 
@@ -126,6 +127,8 @@
 **描述：** 创建 Node 20+/TypeScript strict/Vitest 工作区，建立 contracts、原子文件写入和统一 API/基础设施错误。
 
 **验收标准：** 外部输入均经 Zod 校验；`.data` 被忽略；依赖精确锁定；共享 Fixture 全部通过。
+
+**状态：** [x] 已完成（2026-09-01）；建立 React/Vite/TypeScript strict/Vitest 工程、跨端请求与状态 Schema、统一错误类型及原子 JSON 存储，5 项测试及生产构建通过。
 
 **验证：** `cd evaluator && npm run typecheck && npm test && npm run build`
 

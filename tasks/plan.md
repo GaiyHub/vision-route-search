@@ -12,7 +12,7 @@
 
 新增一个运行在 PC 端的本地 WebUI，通过 ADB 驱动 Android 真机上用户当前安装的普通豆泡 APK，按评测集串行执行指令，复用现有 OTel/Todo 过程数据，执行确定性断言与 LLM-as-Judge，并生成可审计的 JSON/HTML 报告。
 
-实施优先级是先打通“一个中文指令 → 真机 Agent → 结构化终态 → Trace 拉取”的最小纵向链路，再扩展批量编排、Judge、报告和 WebUI，避免先完成大面积 PC UI 后才暴露移动端桥接风险。
+实施顺序调整为 PC-first：先基于共享 Fixture 与 Fake ADB 完成 PC 端契约、评测集、运行器和本地 API，再接入普通 APK 打通“一个中文指令 → 真机 Agent → 结构化终态 → Trace 拉取”的纵向链路，最后扩展 Judge、报告和 WebUI。
 
 ## 3. 已确认的代码基础
 
@@ -158,7 +158,18 @@ evidence-collector
 
 ## 6. 纵向实施切片
 
-### 切片 A：契约与 Android/RN 单样本闭环
+### 切片 A：PC 基础能力与可替换设备边界
+
+目标：不依赖 Android 实现，先建立可测试、可持久化的 PC 端骨架。
+
+- 初始化 evaluator 工程、共享 Schema、错误契约和原子文件存储。
+- 实现 YAML/JSON 评测集校验、标准化与 Run 快照。
+- 通过 Process Adapter 隔离 ADB，实现 Fake ADB 可覆盖的设备发现、请求提交和状态轮询边界。
+- 用共享 Fixture 锁定 PC 与 RN 的跨端契约。
+
+检查点 A：PC typecheck、tests、build 全部通过，Fake ADB 可完成单样本状态流转。
+
+### 切片 B：Android/RN 单样本闭环
 
 目标：尽早验证最危险的跨端链路。
 
@@ -169,9 +180,9 @@ evidence-collector
 - 用 ADB 发送一个包含中文、引号和换行的普通问答；获得 `COMPLETED`、完整 summary 与 traceId。
 - 验证 ADB shell 可调用、普通第三方 App 和普通 Launcher 无法调用，聊天模式回归测试通过，评测前后用户配置、普通数据和普通日志一致。
 
-检查点 A：真机单样本闭环成功后，才继续大规模 PC 开发。
+检查点 B：真机单样本闭环成功后，再扩展证据采集与完整批量编排。
 
-### 切片 B：PC 最小运行器与评测集
+### 切片 C：PC 最小运行器与评测集
 
 目标：在没有 WebUI 的情况下，通过测试或最小后端 API 完成一个样本。
 
