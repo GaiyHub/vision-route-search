@@ -15,7 +15,7 @@ describe('resolveCommandExecutionPolicy', () => {
     });
   });
 
-  test('forces evaluation isolation and non-blocking interaction behavior', () => {
+  test('forces evaluation isolation while waiting for phone-side user interaction', () => {
     expect(resolveCommandExecutionPolicy({
       source: 'EVALUATION',
       conversationMode: 'CONTINUOUS',
@@ -25,7 +25,7 @@ describe('resolveCommandExecutionPolicy', () => {
       source: 'EVALUATION',
       conversationMode: 'ISOLATED',
       completionPolicy: 'AUTO_ACCEPT',
-      interactionPolicy: 'BLOCK',
+      interactionPolicy: 'WAIT_FOR_USER',
       persistUserData: false,
       persistGlobalTokens: false,
       persistResumableTask: false,

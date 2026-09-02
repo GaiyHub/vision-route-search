@@ -925,6 +925,7 @@ const CONFIRM_ACTION_TOOL = {
 
 export function buildConfirmTool(
   interactionPolicy?: CommandExecutionPolicy['interactionPolicy'],
+  forcePhoneSurface = false,
 ): {
   tool: unknown;
   handler: (args: Record<string, unknown>) => Promise<unknown>;
@@ -983,7 +984,7 @@ export function buildConfirmTool(
       let overlayShown = false;
       // The inline card is the only confirmation surface while DouPao is in
       // front. A system overlay/notification is reserved for background use.
-      if (AppState.currentState !== 'active') {
+      if (AppState.currentState !== 'active' || forcePhoneSurface || isEvaluationRun()) {
         try {
           // eslint-disable-next-line @typescript-eslint/no-require-imports
           const ctrl = require('react-native-accessibility-controller') as {
@@ -1046,7 +1047,7 @@ export function buildConfirmTool(
 async function requestToolRiskDecision(
   request: ToolRiskGateRequest,
 ): Promise<'execute' | 'deny'> {
-  const result = await buildConfirmTool().handler({
+  const result = await buildConfirmTool(undefined, isEvaluationRun()).handler({
     action: request.summary,
     risk: request.risk,
     reason: request.reason,
@@ -1085,6 +1086,7 @@ export const ASK_USER_TOOL = {
 
 export function buildAskUserTool(
   interactionPolicy?: CommandExecutionPolicy['interactionPolicy'],
+  forcePhoneSurface = false,
 ): {
   tool: unknown;
   handler: (args: Record<string, unknown>) => Promise<unknown>;
@@ -1104,7 +1106,9 @@ export function buildAskUserTool(
       // Snapshot the external target before opening either input surface.
       // Overlay input leaves that app in place; the package is only needed by
       // the host-editor fallback.
-      const hostWasForegroundAtAsk = AppState.currentState === 'active';
+      const hostWasForegroundAtAsk = AppState.currentState === 'active'
+        && !forcePhoneSurface
+        && !isEvaluationRun();
       let gateTargetPackage = '';
       if (!hostWasForegroundAtAsk) {
         try {
@@ -1209,6 +1213,7 @@ export const REQUEST_USER_ACTION_TOOL = {
 
 export function buildRequestUserActionTool(
   interactionPolicy?: CommandExecutionPolicy['interactionPolicy'],
+  forcePhoneSurface = false,
 ): {
   tool: unknown;
   handler: (args: Record<string, unknown>) => Promise<unknown>;
@@ -1223,7 +1228,7 @@ export function buildRequestUserActionTool(
         return { ok: false, code: 'INVALID_INSTRUCTION', error: 'instruction 不能为空' };
       }
       blockEvaluationInteraction('USER_ACTION', interactionPolicy);
-      if (AppState.currentState === 'active') {
+      if (AppState.currentState === 'active' && !forcePhoneSurface && !isEvaluationRun()) {
         return {
           ok: false,
           code: 'FLOATING_OVERLAY_UNAVAILABLE',
@@ -1297,8 +1302,8 @@ function buildAgentExtraTools(): Array<{
       getApiKey: () => getSettings().tavilyApiKey,
     }),
     ...(buildTodoTools() ?? []),
-    buildAskUserTool(),
-    buildRequestUserActionTool(),
+    buildAskUserTool(undefined, isEvaluationRun()),
+    buildRequestUserActionTool(undefined, isEvaluationRun()),
   ];
   tools.push(...createBrowserToolRegistrations().map((registration) => ({
     ...registration,

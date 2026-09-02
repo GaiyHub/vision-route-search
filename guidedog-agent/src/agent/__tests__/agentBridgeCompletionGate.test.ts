@@ -250,6 +250,24 @@ describe('agentBridge completion gate', () => {
     expect(mockReturnToPreviousApp).not.toHaveBeenCalled();
   });
 
+  it('forces a visible phone overlay for evaluation interaction while the host is active', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    require('react-native').AppState.currentState = 'active';
+    const gate = buildAskUserTool(undefined, true).handler({
+      question: '请输入短信验证码',
+      placeholder: '验证码',
+    });
+    await flushPromises();
+
+    expect(mockShowTextInputOverlay).toHaveBeenCalledWith(expect.objectContaining({
+      prompt: '请输入短信验证码',
+      placeholder: '验证码',
+    }));
+    const requestId = mockShowTextInputOverlay.mock.calls[0][0].requestId as string;
+    eventListeners.get('overlay-text-input')?.({ requestId, action: 'submit', text: '123456' });
+    await expect(gate).resolves.toMatchObject({ answered: true, answer: '123456' });
+  });
+
   it('shows risk confirmation in the overlay without foregrounding the host app', async () => {
     const gate = buildConfirmTool().handler({
       action: '发送短信给妈妈',

@@ -34,7 +34,7 @@ export function resolveCommandExecutionPolicy(
     source: evaluation ? 'EVALUATION' : 'CHAT',
     conversationMode: evaluation ? 'ISOLATED' : (options.conversationMode ?? 'CONTINUOUS'),
     completionPolicy: evaluation ? 'AUTO_ACCEPT' : (options.completionPolicy ?? 'ASK_USER'),
-    interactionPolicy: evaluation ? 'BLOCK' : (options.interactionPolicy ?? 'WAIT_FOR_USER'),
+    interactionPolicy: evaluation ? 'WAIT_FOR_USER' : (options.interactionPolicy ?? 'WAIT_FOR_USER'),
     persistUserData: !evaluation,
     persistGlobalTokens: !evaluation,
     persistResumableTask: !evaluation,
