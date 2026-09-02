@@ -6,6 +6,7 @@ import { RunConsole } from './RunConsole.js';
 import { JudgeSettings, type JudgePublicConfig } from './JudgeSettings.js';
 import type { ApiClient, Device, EvaluationPlanSummary, EvaluationRun } from './types.js';
 import './styles.css';
+import './theme.css';
 
 type Page = 'plans' | 'runs' | 'datasets' | 'judge';
 const terminalRuns = new Set(['COMPLETED', 'CANCELLED', 'INTERRUPTED']);
