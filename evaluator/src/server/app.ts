@@ -7,10 +7,23 @@ import { DatasetError } from '../datasets/loader.js';
 import { evaluationDatasetSchema } from '../datasets/schema.js';
 import type { EvaluationRuntime } from './runtime.js';
 import type { RunManager } from './runManager.js';
+import type { SampleDetailsStore } from './sampleDetailsStore.js';
 
-export function createApp(dependencies: { datasets: DatasetCatalog; runtime: EvaluationRuntime; runs: RunManager }) {
+export function createApp(dependencies: { datasets: DatasetCatalog; runtime: EvaluationRuntime; runs: RunManager; details: SampleDetailsStore }) {
   const app = Fastify({ logger: false });
   const datasetParams = z.object({ datasetId: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/) });
+  const runSampleParams = z.object({
+    runId: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/),
+    sampleId: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/),
+  });
+  const artifactParams = runSampleParams.extend({
+    artifactId: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/),
+  });
+  const traceQuery = z.object({
+    cursor: z.string().optional(),
+    limit: z.coerce.number().int().min(1).max(200).default(50),
+    type: z.enum(['USER_INPUT', 'MODEL_CALL', 'TOOL_CALL', 'AGENT_EVENT']).optional(),
+  });
 
   app.get('/api/health', async () => ({ status: 'ok', runtime: dependencies.runtime.source.toLowerCase() }));
   app.get('/api/devices', async () => ({ devices: await dependencies.runtime.listDevices() }));
@@ -39,6 +52,25 @@ export function createApp(dependencies: { datasets: DatasetCatalog; runtime: Eva
     return reply.code(202).send(await dependencies.runs.create(input));
   });
   app.get<{ Params: { runId: string } }>('/api/runs/:runId', async (request) => dependencies.runs.get(request.params.runId));
+  app.get<{ Params: { runId: string; sampleId: string } }>('/api/runs/:runId/samples/:sampleId', async (request) => {
+    const params = runSampleParams.parse(request.params);
+    return dependencies.details.get(params.runId, params.sampleId);
+  });
+  app.get<{ Params: { runId: string; sampleId: string }; Querystring: Record<string, unknown> }>(
+    '/api/runs/:runId/samples/:sampleId/trace',
+    async (request) => {
+      const params = runSampleParams.parse(request.params);
+      return dependencies.details.trace(params.runId, params.sampleId, traceQuery.parse(request.query));
+    },
+  );
+  app.get<{ Params: { runId: string; sampleId: string; artifactId: string } }>(
+    '/api/runs/:runId/samples/:sampleId/artifacts/:artifactId',
+    async (request, reply) => {
+      const params = artifactParams.parse(request.params);
+      const artifact = await dependencies.details.artifact(params.runId, params.sampleId, params.artifactId);
+      return reply.type(artifact.descriptor.mediaType).send(artifact.content);
+    },
+  );
   app.post<{ Params: { runId: string } }>('/api/runs/:runId/cancel', async (request) => dependencies.runs.cancel(request.params.runId));
 
   app.setErrorHandler((error, _request, reply) => {

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { artifactDescriptorSchema, sampleMetricsSchema } from '../evidence/schema.js';
 
 export const deviceInfoSchema = z.object({
   serial: z.string(),
@@ -54,6 +55,15 @@ export const createRunRequestSchema = z.object({
   sampleIds: z.array(z.string()).optional(),
 }).strict();
 
+export const sampleDetailSchema = z.object({
+  schemaVersion: z.literal(1),
+  runId: z.string(),
+  sample: sampleRunSchema,
+  metrics: sampleMetricsSchema.nullable(),
+  artifacts: z.array(artifactDescriptorSchema),
+}).strict();
+
 export type DeviceInfo = z.infer<typeof deviceInfoSchema>;
 export type EvaluationRun = z.infer<typeof evaluationRunSchema>;
 export type SampleRun = z.infer<typeof sampleRunSchema>;
+export type SampleDetail = z.infer<typeof sampleDetailSchema>;
