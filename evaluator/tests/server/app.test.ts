@@ -7,6 +7,7 @@ import { DatasetCatalog } from '../../src/server/datasetCatalog.js';
 import { MockEvaluationRuntime } from '../../src/server/mockRuntime.js';
 import { RunManager } from '../../src/server/runManager.js';
 import { SampleDetailsStore } from '../../src/server/sampleDetailsStore.js';
+import { PlanRepository } from '../../src/plans/repository.js';
 
 const roots: string[] = [];
 
@@ -21,7 +22,7 @@ describe('本地评测 API', () => {
     const datasets = new DatasetCatalog(resolve(process.cwd(), 'datasets'));
     const runtime = new MockEvaluationRuntime(0);
     const runs = new RunManager(dataRoot, datasets, runtime);
-    const app = createApp({ datasets, runtime, runs, details: new SampleDetailsStore(dataRoot) });
+    const app = createApp({ datasets, runtime, runs, details: new SampleDetailsStore(dataRoot), plans: new PlanRepository(dataRoot, datasets) });
 
     const devices = await app.inject({ method: 'GET', url: '/api/devices' });
     expect(devices.json().devices[0]).toMatchObject({ serial: 'mock-pixel-8', state: 'READY', mock: true });
@@ -65,7 +66,7 @@ describe('本地评测 API', () => {
     const datasets = new DatasetCatalog(datasetDirectory);
     const runtime = new MockEvaluationRuntime(0);
     const app = createApp({
-      datasets, runtime, runs: new RunManager(root, datasets, runtime), details: new SampleDetailsStore(root),
+      datasets, runtime, runs: new RunManager(root, datasets, runtime), details: new SampleDetailsStore(root), plans: new PlanRepository(root, datasets),
     });
     const createdBody = {
       schemaVersion: 1, id: 'managed', name: '页面创建',
@@ -84,13 +85,51 @@ describe('本地评测 API', () => {
     await app.close();
   });
 
+  it('通过 API 管理评测计划且不会启动运行', async () => {
+    const dataRoot = await mkdtemp(join(tmpdir(), 'doupao-plan-api-'));
+    roots.push(dataRoot);
+    const datasets = new DatasetCatalog(resolve(process.cwd(), 'datasets'));
+    const runtime = new MockEvaluationRuntime(0);
+    const runs = new RunManager(dataRoot, datasets, runtime);
+    const app = createApp({
+      datasets,
+      runtime,
+      runs,
+      details: new SampleDetailsStore(dataRoot),
+      plans: new PlanRepository(dataRoot, datasets),
+    });
+    const payload = {
+      name: '真机核心回归',
+      datasetId: 'doupao-smoke',
+      deviceSerial: 'temporarily-offline-device',
+      sampleIds: ['answer-time'],
+      execution: { defaultTimeoutMs: 120_000, continueOnFailure: true },
+      judge: { enabled: true },
+    };
+
+    const created = await app.inject({ method: 'POST', url: '/api/plans', payload });
+    expect(created.statusCode).toBe(201);
+    expect(created.json()).toMatchObject(payload);
+    const planId = created.json().planId as string;
+    expect((await app.inject({ method: 'GET', url: '/api/runs' })).json().runs).toEqual([]);
+    expect((await app.inject({ method: 'GET', url: `/api/plans/${planId}` })).json()).toMatchObject({ planId });
+    const listed = await app.inject({ method: 'GET', url: '/api/plans?limit=1' });
+    expect(listed.json()).toMatchObject({ plans: [{ planId }], pagination: { nextCursor: null } });
+    const updated = await app.inject({ method: 'PUT', url: `/api/plans/${planId}`, payload: { ...payload, name: '已更新回归' } });
+    expect(updated.json()).toMatchObject({ planId, name: '已更新回归', createdAt: created.json().createdAt });
+    const invalid = await app.inject({ method: 'POST', url: '/api/plans', payload: { ...payload, sampleIds: ['missing'] } });
+    expect(invalid.statusCode).toBe(404);
+    expect(invalid.json()).toMatchObject({ error: { code: 'SAMPLE_NOT_FOUND' } });
+    await app.close();
+  });
+
   it('按需读取样本指标、分页轨迹和白名单原始产物', async () => {
     const dataRoot = await mkdtemp(join(tmpdir(), 'doupao-details-api-'));
     roots.push(dataRoot);
     const datasets = new DatasetCatalog(resolve(process.cwd(), 'datasets'));
     const runtime = new MockEvaluationRuntime(0);
     const runs = new RunManager(dataRoot, datasets, runtime);
-    const app = createApp({ datasets, runtime, runs, details: new SampleDetailsStore(dataRoot) });
+    const app = createApp({ datasets, runtime, runs, details: new SampleDetailsStore(dataRoot), plans: new PlanRepository(dataRoot, datasets) });
     const created = await app.inject({
       method: 'POST', url: '/api/runs',
       payload: { datasetId: 'doupao-smoke', deviceSerial: 'mock-pixel-8' },

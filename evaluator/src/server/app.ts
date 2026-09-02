@@ -8,8 +8,10 @@ import { evaluationDatasetSchema } from '../datasets/schema.js';
 import type { EvaluationRuntime } from './runtime.js';
 import { RunManagerError, type RunManager } from './runManager.js';
 import type { SampleDetailsStore } from './sampleDetailsStore.js';
+import { PlanRepositoryError, type PlanRepository } from '../plans/repository.js';
+import { createEvaluationPlanSchema, planIdSchema } from '../plans/schema.js';
 
-export function createApp(dependencies: { datasets: DatasetCatalog; runtime: EvaluationRuntime; runs: RunManager; details: SampleDetailsStore }) {
+export function createApp(dependencies: { datasets: DatasetCatalog; runtime: EvaluationRuntime; runs: RunManager; details: SampleDetailsStore; plans: PlanRepository }) {
   const app = Fastify({ logger: false });
   const datasetParams = z.object({ datasetId: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/) });
   const runSampleParams = z.object({
@@ -23,6 +25,11 @@ export function createApp(dependencies: { datasets: DatasetCatalog; runtime: Eva
     cursor: z.string().optional(),
     limit: z.coerce.number().int().min(1).max(200).default(50),
     type: z.enum(['USER_INPUT', 'MODEL_CALL', 'TOOL_CALL', 'AGENT_EVENT']).optional(),
+  });
+  const planParams = z.object({ planId: planIdSchema });
+  const planListQuery = z.object({
+    cursor: z.string().min(1).optional(),
+    limit: z.coerce.number().int().min(1).max(100).default(20),
   });
 
   app.get('/api/health', async () => ({ status: 'ok', runtime: dependencies.runtime.source.toLowerCase() }));
@@ -46,6 +53,21 @@ export function createApp(dependencies: { datasets: DatasetCatalog; runtime: Eva
     const { datasetId } = datasetParams.parse(request.params);
     await dependencies.datasets.delete(datasetId);
     return reply.code(204).send();
+  });
+  app.post('/api/plans', async (request, reply) => {
+    const input = createEvaluationPlanSchema.parse(request.body);
+    return reply.code(201).send(await dependencies.plans.create(input));
+  });
+  app.get<{ Querystring: Record<string, unknown> }>('/api/plans', async (request) => {
+    return dependencies.plans.list(planListQuery.parse(request.query));
+  });
+  app.get<{ Params: { planId: string } }>('/api/plans/:planId', async (request) => {
+    const { planId } = planParams.parse(request.params);
+    return dependencies.plans.get(planId);
+  });
+  app.put<{ Params: { planId: string } }>('/api/plans/:planId', async (request) => {
+    const { planId } = planParams.parse(request.params);
+    return dependencies.plans.update(planId, createEvaluationPlanSchema.parse(request.body));
   });
   app.post('/api/runs', async (request, reply) => {
     const input = createRunRequestSchema.parse(request.body);
@@ -85,12 +107,19 @@ export function createApp(dependencies: { datasets: DatasetCatalog; runtime: Eva
     const validation = error instanceof ZodError || error instanceof DatasetError;
     const catalog = error instanceof DatasetCatalogError;
     const runConflict = error instanceof RunManagerError;
+    const plan = error instanceof PlanRepositoryError;
     const message = error instanceof Error ? error.message : '未知服务端错误';
-    const status = validation ? 400 : runConflict || catalog && error.code === 'DATASET_CONFLICT' ? 409 : 404;
+    const status = validation || plan && error.code === 'INVALID_CURSOR'
+      ? 400
+      : runConflict || catalog && error.code === 'DATASET_CONFLICT'
+        ? 409
+        : 404;
     void reply.code(status).send({
       schemaVersion: 1,
       error: {
-        code: validation ? 'INVALID_REQUEST' : runConflict || catalog ? error.code : 'RESOURCE_NOT_FOUND',
+        code: validation || plan && error.code === 'INVALID_CURSOR'
+          ? 'INVALID_REQUEST'
+          : runConflict || catalog || plan ? error.code : 'RESOURCE_NOT_FOUND',
         message,
         retryable: false,
       },

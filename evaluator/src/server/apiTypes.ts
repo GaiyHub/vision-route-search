@@ -1,6 +1,12 @@
 import { z } from 'zod';
 import { artifactDescriptorSchema, sampleMetricsSchema } from '../evidence/schema.js';
 
+export {
+  createEvaluationPlanSchema,
+  evaluationPlanSchema,
+  evaluationPlanSummarySchema,
+} from '../plans/schema.js';
+
 export const deviceInfoSchema = z.object({
   serial: z.string(),
   model: z.string(),
