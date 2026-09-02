@@ -362,3 +362,33 @@ adb -s <serial> shell dumpsys package com.watchdog.agent
 4. 首版仅使用设备端已有豆泡配置，不在 WebUI 中管理模型与 Skills。
 
 当前无阻塞性架构问题；仍需用户批准更新后的 Plan，之后才能进入 Tasks 阶段。
+
+## 13. 增量计划：评测计划化（2026-09-02）
+
+### 已批准目标
+
+- 评测集仅管理样本资产，不再作为执行入口。
+- 新增可复用 `EvaluationPlan`，绑定评测集、样本范围、目标设备和运行策略。
+- 每次启动计划创建不可变 `PlanRun`；数据按 `planId/runId/sampleId/attemptId` 归属。
+- 单样本重试在原 `PlanRun` 下新增 Attempt，历史 Attempt 和证据保持不可变。
+- 每个终态 `PlanRun` 生成整体报告；既有 Run 保持只读兼容。
+
+### 接口与兼容决策
+
+- 新增 `/api/plans` 管理计划，列表分页且写入使用原子 JSON；设备可离线保存，执行前再检查 readiness。
+- 新增 `/api/plans/:planId/runs` 启动和查看计划执行；现有 `/api/runs` 查询接口保留，旧创建入口从 WebUI 移除。
+- 新 Run 在现有字段上新增 `planId`、计划快照和 Attempt，不破坏历史 `run.json` 解析；旧 Run 在“历史评测”中只读展示。
+- 报告由服务端根据每个样本最新终态 Attempt 聚合，保存 `report.json`，页面按需读取。
+
+### 实施切片
+
+1. 完成计划 Schema、Repository、分页 CRUD API 及其集成测试。
+2. 从计划创建不可变 `PlanRun`，将重试改为原 Run 新 Attempt，并兼容历史 Run。
+3. 为终态 Run 生成整体报告并提供查询接口。
+4. 将 WebUI 拆为“评测计划 / 执行记录 / 评测集”一级导航，执行入口只保留在计划页。
+
+### 验证门槛
+
+- 每个切片执行 `cd evaluator && npm run typecheck && npm test && npm run build`，成功后独立提交。
+- 最终通过 WebUI 验证：创建计划、选择设备与样本、启动一次 Run、查看样本 Attempt/轨迹、手动重试、查看整体报告。
+- 不触碰或覆盖当前工作区中与本功能无关的移动端未提交改动。

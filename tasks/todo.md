@@ -376,3 +376,63 @@
 
 - [x] 浏览器断开手机后仍可通过落盘 Run 查看每次样本执行的完整轨迹和关键指标。
 - [x] evaluator 全量 typecheck、tests、build 通过。
+
+## 增量阶段 G：评测计划化
+
+### Task 24：实现评测计划管理（M）
+
+**描述：** 实现 `EvaluationPlanV1` Schema、JSON Repository 和分页 CRUD API，保存前校验评测集与样本引用。
+
+**验收标准：**
+- [ ] 可创建、分页列出、查看和更新计划，保存计划不会启动 Run。
+- [ ] 重复/空样本、无效引用和非法超时返回统一错误；设备离线不阻止保存。
+- [ ] 计划写入原子化，损坏文件不影响其他计划读取。
+
+**验证：** `cd evaluator && npm run typecheck && npm test && npm run build`
+
+**依赖：** Task 9
+
+### Task 25：实现 PlanRun 与 SampleAttempt（M）
+
+**描述：** 从计划创建不可变执行快照，建立 `planId/runId/sampleId/attemptId` 归属，并将单样本重试改为原 Run 新 Attempt。
+
+**验收标准：**
+- [ ] 启动计划前重新检查数据集、样本和设备 readiness；每次启动生成独立 Run。
+- [ ] 更新计划不改变历史 Run 快照；重试保留旧 Attempt 和证据。
+- [ ] 既有 Run 可继续只读查看，旧客户端查询接口不被破坏。
+
+**验证：** RunManager 与 API 集成测试；`cd evaluator && npm run typecheck && npm test && npm run build`
+
+**依赖：** Task 24
+
+### Task 26：生成 PlanRun 整体报告（M）
+
+**描述：** 聚合每个样本最新终态 Attempt 的结果和关键指标，生成并持久化一份计划执行报告。
+
+**验收标准：**
+- [ ] 完成、取消和中断 Run 均能产生结构稳定的报告。
+- [ ] 样本重试后报告按最新 Attempt 重新计算，历史 Attempt 保持可审计。
+- [ ] 提供计划 Run 报告查询 API，缺失报告返回统一错误。
+
+**验证：** 报告聚合与 API 测试；`cd evaluator && npm run typecheck && npm test && npm run build`
+
+**依赖：** Task 25
+
+### Task 27：重构评测 WebUI 信息架构（M）
+
+**描述：** 新增“评测计划”一级页作为唯一执行入口，保留“评测集”资产管理和“执行记录”查询页，并串联 Attempt、轨迹和整体报告。
+
+**验收标准：**
+- [ ] 创建计划时可选择评测集、样本、设备和运行配置，并可从计划启动评测。
+- [ ] 执行记录按计划与 Run 浏览；样本可查看 Attempt、指标、轨迹并手动重试。
+- [ ] 每次 Run 可查看整体报告；旧 Run 在历史评测中只读可见。
+
+**验证：** React 组件测试、production build、本地浏览器主流程验收。
+
+**依赖：** Task 24、Task 25、Task 26
+
+### Checkpoint G：计划化评测闭环
+
+- [ ] evaluator 全量 typecheck、tests、build 通过。
+- [ ] 评测集不再出现执行入口，计划创建到整体报告主流程可用。
+- [ ] 旧 Run 与移动端用户数据均未发生破坏性迁移。
