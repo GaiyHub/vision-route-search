@@ -30,4 +30,19 @@ describe('JudgeService', () => {
     expect(result.verdict).toBe('PASS');
     expect(result.attempts).toHaveLength(2);
   });
+
+  it('仅在显式声明且 Provider 支持时发送最终截图', async () => {
+    let requestBody = '';
+    const fetch = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      requestBody = String(init?.body);
+      return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ schemaVersion: 1, verdict: 'PASS', score: 0.9, reason: '界面符合要求', evidence: ['finalScreenshot', 'uiHierarchy'] }) } }] }), { status: 200 });
+    });
+    const visualSample: EvaluationSample = { ...sample, judge: { ...sample.judge!, evidence: ['finalScreenshot', 'uiHierarchy'] } };
+    const result = await new JudgeService({ baseUrl: 'https://judge.example/v1', model: 'vision-judge', timeoutMs: 5000, supportsImages: true }, fetch as typeof globalThis.fetch).evaluate({
+      ...evidence, sample: visualSample, finalScreenshot: Buffer.from('png'), uiHierarchy: '<hierarchy><node text="成功"/></hierarchy>',
+    });
+    expect(result.verdict).toBe('PASS');
+    expect(result.warnings).toEqual([]);
+    expect(requestBody).toContain('data:image/png;base64,cG5n');
+  });
 });

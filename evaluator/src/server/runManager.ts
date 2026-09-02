@@ -310,12 +310,16 @@ export class RunManager {
       ? join(this.dataRoot, 'runs', run.runId, 'samples', sample.sampleId, 'attempts', attemptId, 'normalized')
       : join(this.dataRoot, 'runs', run.runId, 'samples', sample.sampleId, 'normalized');
     const trace = await readOptional(join(normalizedRoot, 'trace.json'), traceDocumentSchema);
+    const uiHierarchy = await readOptionalText(join(normalizedRoot, '..', 'raw', 'ui-hierarchy.xml'));
+    const finalScreenshot = await readOptionalBuffer(join(normalizedRoot, '..', 'raw', 'final-screenshot.png'));
     const judge = this.judge
       ? await this.judge.evaluate({
         sample: definition,
         finalResponse: result.summary,
         assertions: target.assertions!,
         ...(trace ? { trace } : {}),
+        ...(uiHierarchy ? { uiHierarchy } : {}),
+        ...(finalScreenshot ? { finalScreenshot } : {}),
       })
       : missingJudge(definition.judge!.threshold);
     target.judge = judge;
@@ -393,6 +397,11 @@ async function readOptional<T>(path: string, schema: ZodType<T>): Promise<T | un
 
 async function readOptionalText(path: string): Promise<string | undefined> {
   try { return await readFile(path, 'utf8'); }
+  catch { return undefined; }
+}
+
+async function readOptionalBuffer(path: string): Promise<Buffer | undefined> {
+  try { return await readFile(path); }
   catch { return undefined; }
 }
 

@@ -9,6 +9,8 @@ export interface JudgeEvidenceInput {
   finalResponse: string;
   assertions: AssertionReport;
   trace?: TraceDocument;
+  uiHierarchy?: string;
+  finalScreenshot?: Buffer;
 }
 
 interface StoredConfig extends Omit<JudgeConfigInput, 'apiKey'> { apiKey?: string }
@@ -66,7 +68,7 @@ export class JudgeService {
     const judge = input.sample.judge;
     if (!judge?.enabled) throw new Error('样本未启用 Judge');
     const config = this.config;
-    const evidence = buildEvidence(input);
+    const evidence = buildEvidence(input, config?.supportsImages ?? false);
     const evidenceHash = createHash('sha256').update(JSON.stringify(evidence), 'utf8').digest('hex');
     const base = {
       schemaVersion: 1 as const, provider: 'OPENAI_COMPATIBLE' as const,
@@ -79,7 +81,7 @@ export class JudgeService {
     let repair: string | undefined;
     for (let attemptNumber = 1; attemptNumber <= 2; attemptNumber += 1) {
       try {
-        const rawResponse = await this.request(config, input, evidence.fragments, repair);
+        const rawResponse = await this.request(config, input, evidence.fragments, evidence.imageDataUrl, repair);
         try {
           const result = judgeResultSchema.parse(JSON.parse(rawResponse));
           if (result.evidence.some((id) => !evidence.fragments.some((fragment) => fragment.id === id))) {
@@ -101,7 +103,7 @@ export class JudgeService {
     return judgeAssessmentSchema.parse({ ...base, verdict: 'JUDGE_ERROR', attempts });
   }
 
-  private async request(config: StoredConfig, input: JudgeEvidenceInput, fragments: EvidenceFragment[], repair?: string): Promise<string> {
+  private async request(config: StoredConfig, input: JudgeEvidenceInput, fragments: EvidenceFragment[], imageDataUrl?: string, repair?: string): Promise<string> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), config.timeoutMs);
     try {
@@ -113,7 +115,10 @@ export class JudgeService {
           response_format: { type: 'json_object' },
           messages: [
             { role: 'system', content: SYSTEM_PROMPT },
-            { role: 'user', content: JSON.stringify({ instruction: input.sample.instruction, rubric: input.sample.judge!.rubric, evidence: fragments, ...(repair ? { repair } : {}) }) },
+            { role: 'user', content: imageDataUrl ? [
+              { type: 'text', text: JSON.stringify({ instruction: input.sample.instruction, rubric: input.sample.judge!.rubric, evidence: fragments, ...(repair ? { repair } : {}) }) },
+              { type: 'image_url', image_url: { url: imageDataUrl } },
+            ] : JSON.stringify({ instruction: input.sample.instruction, rubric: input.sample.judge!.rubric, evidence: fragments, ...(repair ? { repair } : {}) }) },
           ],
         }),
       });
@@ -125,18 +130,30 @@ export class JudgeService {
 }
 
 interface EvidenceFragment { id: string; content: string }
-function buildEvidence(input: JudgeEvidenceInput): { fragments: EvidenceFragment[]; warnings: string[] } {
+function buildEvidence(input: JudgeEvidenceInput, supportsImages: boolean): { fragments: EvidenceFragment[]; warnings: string[]; imageDataUrl?: string } {
   const fragments: EvidenceFragment[] = [];
   const warnings: string[] = [];
+  let imageDataUrl: string | undefined;
   for (const channel of input.sample.judge!.evidence) {
     if (channel === 'finalResponse') fragments.push({ id: 'finalResponse', content: input.finalResponse.slice(0, 16_000) });
     else if (channel === 'assertionSummary') fragments.push({ id: 'assertionSummary', content: JSON.stringify(input.assertions) });
     else if (channel === 'traceSummary') {
       if (!input.trace) warnings.push('缺少 traceSummary 证据');
       else fragments.push({ id: 'traceSummary', content: summarizeTrace(input.trace) });
-    } else warnings.push(`暂不可用的 Judge 证据：${channel}`);
+    } else if (channel === 'uiHierarchy') {
+      if (!input.uiHierarchy) warnings.push('缺少 uiHierarchy 证据');
+      else fragments.push({ id: 'uiHierarchy', content: input.uiHierarchy.slice(0, 32_000) });
+    } else if (channel === 'finalScreenshot') {
+      if (!input.finalScreenshot) warnings.push('缺少 finalScreenshot 证据');
+      else if (!supportsImages) warnings.push('Judge Provider 不支持图片，finalScreenshot 已降级忽略');
+      else {
+        const imageHash = createHash('sha256').update(input.finalScreenshot).digest('hex');
+        fragments.push({ id: 'finalScreenshot', content: `最终 PNG 截图，sha256=${imageHash}` });
+        imageDataUrl = `data:image/png;base64,${input.finalScreenshot.toString('base64')}`;
+      }
+    }
   }
-  return { fragments, warnings };
+  return { fragments, warnings, ...(imageDataUrl ? { imageDataUrl } : {}) };
 }
 
 function summarizeTrace(trace: TraceDocument): string {
