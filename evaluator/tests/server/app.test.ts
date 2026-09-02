@@ -38,6 +38,8 @@ describe('本地评测 API', () => {
       result = await app.inject({ method: 'GET', url: `/api/runs/${runId}` });
     }
     expect(result.json()).toMatchObject({ state: 'COMPLETED', samples: [{ state: 'PASSED' }] });
+    const history = await app.inject({ method: 'GET', url: '/api/runs' });
+    expect(history.json()).toMatchObject({ runs: [{ runId, state: 'COMPLETED' }] });
     await app.close();
   });
 

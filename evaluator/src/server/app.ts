@@ -51,6 +51,7 @@ export function createApp(dependencies: { datasets: DatasetCatalog; runtime: Eva
     const input = createRunRequestSchema.parse(request.body);
     return reply.code(202).send(await dependencies.runs.create(input));
   });
+  app.get('/api/runs', async () => ({ runs: await dependencies.runs.list() }));
   app.get<{ Params: { runId: string } }>('/api/runs/:runId', async (request) => dependencies.runs.get(request.params.runId));
   app.get<{ Params: { runId: string; sampleId: string } }>('/api/runs/:runId/samples/:sampleId', async (request) => {
     const params = runSampleParams.parse(request.params);

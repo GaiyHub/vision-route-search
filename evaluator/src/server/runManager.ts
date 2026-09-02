@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { DatasetCatalog } from './datasetCatalog.js';
 import type { EvaluationRuntime } from './runtime.js';
@@ -54,6 +55,19 @@ export class RunManager {
 
   async get(runId: string): Promise<EvaluationRun> {
     return readValidatedJson(this.path(runId), evaluationRunSchema);
+  }
+
+  async list(): Promise<EvaluationRun[]> {
+    let entries;
+    try { entries = await readdir(join(this.dataRoot, 'runs'), { withFileTypes: true }); }
+    catch { return []; }
+    const runs = await Promise.all(entries.filter((entry) => entry.isDirectory()).map(async (entry) => {
+      try { return await this.get(entry.name); }
+      catch { return null; }
+    }));
+    return runs
+      .filter((run): run is EvaluationRun => run !== null)
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
   }
 
   async cancel(runId: string): Promise<EvaluationRun> {
