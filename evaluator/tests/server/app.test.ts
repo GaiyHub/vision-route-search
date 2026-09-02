@@ -8,6 +8,7 @@ import { MockEvaluationRuntime } from '../../src/server/mockRuntime.js';
 import { RunManager } from '../../src/server/runManager.js';
 import { SampleDetailsStore } from '../../src/server/sampleDetailsStore.js';
 import { PlanRepository } from '../../src/plans/repository.js';
+import { PlanReportStore } from '../../src/reports/planReport.js';
 
 const roots: string[] = [];
 
@@ -22,7 +23,7 @@ describe('本地评测 API', () => {
     const datasets = new DatasetCatalog(resolve(process.cwd(), 'datasets'));
     const runtime = new MockEvaluationRuntime(0);
     const runs = new RunManager(dataRoot, datasets, runtime);
-    const app = createApp({ datasets, runtime, runs, details: new SampleDetailsStore(dataRoot), plans: new PlanRepository(dataRoot, datasets) });
+    const app = createApp({ datasets, runtime, runs, details: new SampleDetailsStore(dataRoot), plans: new PlanRepository(dataRoot, datasets), reports: new PlanReportStore(dataRoot) });
 
     const devices = await app.inject({ method: 'GET', url: '/api/devices' });
     expect(devices.json().devices[0]).toMatchObject({ serial: 'mock-pixel-8', state: 'READY', mock: true });
@@ -62,7 +63,7 @@ describe('本地评测 API', () => {
     const datasets = new DatasetCatalog(datasetDirectory);
     const runtime = new MockEvaluationRuntime(0);
     const app = createApp({
-      datasets, runtime, runs: new RunManager(root, datasets, runtime), details: new SampleDetailsStore(root), plans: new PlanRepository(root, datasets),
+      datasets, runtime, runs: new RunManager(root, datasets, runtime), details: new SampleDetailsStore(root), plans: new PlanRepository(root, datasets), reports: new PlanReportStore(root),
     });
     const createdBody = {
       schemaVersion: 1, id: 'managed', name: '页面创建',
@@ -93,6 +94,7 @@ describe('本地评测 API', () => {
       runs,
       details: new SampleDetailsStore(dataRoot),
       plans: new PlanRepository(dataRoot, datasets),
+      reports: new PlanReportStore(dataRoot),
     });
     const payload = {
       name: '真机核心回归',
@@ -141,6 +143,14 @@ describe('本地评测 API', () => {
       url: `/api/runs/${runId}/samples/answer-time/attempts/${firstAttemptId}`,
     });
     expect(firstAttempt.json()).toMatchObject({ sample: { latestAttemptId: firstAttemptId, state: 'PASSED' }, metrics: null });
+    let retriedRun = await app.inject({ method: 'GET', url: `/api/runs/${runId}` });
+    for (let attempt = 0; attempt < 20 && retriedRun.json().state !== 'COMPLETED'; attempt += 1) {
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, 10));
+      retriedRun = await app.inject({ method: 'GET', url: `/api/runs/${runId}` });
+    }
+    const report = await app.inject({ method: 'GET', url: `/api/plans/${planId}/runs/${runId}/report` });
+    expect(report.statusCode).toBe(200);
+    expect(report.json()).toMatchObject({ planId, runId, summary: { total: 1, passed: 1 }, samples: [{ attemptNumber: 2 }] });
     const planRuns = await app.inject({ method: 'GET', url: `/api/plans/${planId}/runs` });
     expect(planRuns.json()).toMatchObject({ runs: [{ runId, planId }] });
     await app.close();
@@ -152,7 +162,7 @@ describe('本地评测 API', () => {
     const datasets = new DatasetCatalog(resolve(process.cwd(), 'datasets'));
     const runtime = new MockEvaluationRuntime(0);
     const runs = new RunManager(dataRoot, datasets, runtime);
-    const app = createApp({ datasets, runtime, runs, details: new SampleDetailsStore(dataRoot), plans: new PlanRepository(dataRoot, datasets) });
+    const app = createApp({ datasets, runtime, runs, details: new SampleDetailsStore(dataRoot), plans: new PlanRepository(dataRoot, datasets), reports: new PlanReportStore(dataRoot) });
     const created = await app.inject({
       method: 'POST', url: '/api/runs',
       payload: { datasetId: 'doupao-smoke', deviceSerial: 'mock-pixel-8' },

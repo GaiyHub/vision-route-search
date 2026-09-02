@@ -3,6 +3,7 @@ import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { EvaluationDataset, EvaluationSample } from '../datasets/schema.js';
 import type { EvaluationPlan } from '../plans/schema.js';
+import { PlanReportStore } from '../reports/planReport.js';
 import { readValidatedJson, writeJsonAtomic } from '../storage/atomicFile.js';
 import type { DatasetCatalog } from './datasetCatalog.js';
 import {
@@ -27,12 +28,15 @@ export class RunManagerError extends Error {
 export class RunManager {
   private readonly controllers = new Map<string, AbortController>();
   private readonly activeDeviceSerials = new Set<string>();
+  private readonly reports: PlanReportStore;
 
   constructor(
     private readonly dataRoot: string,
     private readonly datasets: DatasetCatalog,
     private readonly runtime: EvaluationRuntime,
-  ) {}
+  ) {
+    this.reports = new PlanReportStore(dataRoot);
+  }
 
   private path(runId: string): string {
     return join(this.dataRoot, 'runs', runId, 'run.json');
@@ -230,6 +234,7 @@ export class RunManager {
     run.finishedAt = new Date().toISOString();
     this.controllers.delete(run.runId);
     await writeJsonAtomic(this.path(run.runId), run);
+    if (run.planId) await this.reports.generate(run);
   }
 }
 

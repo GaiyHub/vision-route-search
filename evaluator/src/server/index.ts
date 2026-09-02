@@ -12,6 +12,7 @@ import { MockEvaluationRuntime } from './mockRuntime.js';
 import { RunManager } from './runManager.js';
 import { SampleDetailsStore } from './sampleDetailsStore.js';
 import { PlanRepository } from '../plans/repository.js';
+import { PlanReportStore } from '../reports/planReport.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const datasets = new DatasetCatalog(join(root, 'datasets'));
@@ -22,7 +23,14 @@ const runtime = process.env.DOUPAO_EVALUATOR_RUNTIME === 'mock'
   : new AdbEvaluationRuntime(adb, undefined, new EvidenceCollector(adb, dataRoot));
 const runs = new RunManager(dataRoot, datasets, runtime);
 const plans = new PlanRepository(dataRoot, datasets);
-const app = createApp({ datasets, runtime, runs, details: new SampleDetailsStore(dataRoot), plans });
+const app = createApp({
+  datasets,
+  runtime,
+  runs,
+  details: new SampleDetailsStore(dataRoot),
+  plans,
+  reports: new PlanReportStore(dataRoot),
+});
 const dist = join(root, 'dist');
 try {
   await access(join(dist, 'index.html'));

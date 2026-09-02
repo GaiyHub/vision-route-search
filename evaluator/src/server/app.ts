@@ -10,8 +10,9 @@ import { RunManagerError, type RunManager } from './runManager.js';
 import type { SampleDetailsStore } from './sampleDetailsStore.js';
 import { PlanRepositoryError, type PlanRepository } from '../plans/repository.js';
 import { createEvaluationPlanSchema, planIdSchema } from '../plans/schema.js';
+import { PlanReportStoreError, type PlanReportStore } from '../reports/planReport.js';
 
-export function createApp(dependencies: { datasets: DatasetCatalog; runtime: EvaluationRuntime; runs: RunManager; details: SampleDetailsStore; plans: PlanRepository }) {
+export function createApp(dependencies: { datasets: DatasetCatalog; runtime: EvaluationRuntime; runs: RunManager; details: SampleDetailsStore; plans: PlanRepository; reports: PlanReportStore }) {
   const app = Fastify({ logger: false });
   const datasetParams = z.object({ datasetId: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/) });
   const runSampleParams = z.object({
@@ -85,6 +86,12 @@ export function createApp(dependencies: { datasets: DatasetCatalog; runtime: Eva
     await dependencies.plans.get(planId);
     return { runs: await dependencies.runs.list(planId) };
   });
+  app.get<{ Params: { planId: string; runId: string } }>('/api/plans/:planId/runs/:runId/report', async (request) => {
+    const { planId } = planParams.parse(request.params);
+    const run = await dependencies.runs.get(request.params.runId);
+    if (run.planId !== planId) throw new PlanReportStoreError(`评测报告不属于计划：${planId}`);
+    return dependencies.reports.get(run.runId);
+  });
   app.post('/api/runs', async (request, reply) => {
     const input = createRunRequestSchema.parse(request.body);
     return reply.code(202).send(await dependencies.runs.create(input));
@@ -140,12 +147,14 @@ export function createApp(dependencies: { datasets: DatasetCatalog; runtime: Eva
     },
   );
   app.post<{ Params: { runId: string } }>('/api/runs/:runId/cancel', async (request) => dependencies.runs.cancel(request.params.runId));
+  app.get<{ Params: { runId: string } }>('/api/runs/:runId/report', async (request) => dependencies.reports.get(request.params.runId));
 
   app.setErrorHandler((error, _request, reply) => {
     const validation = error instanceof ZodError || error instanceof DatasetError;
     const catalog = error instanceof DatasetCatalogError;
     const runConflict = error instanceof RunManagerError;
     const plan = error instanceof PlanRepositoryError;
+    const report = error instanceof PlanReportStoreError;
     const message = error instanceof Error ? error.message : '未知服务端错误';
     const status = validation || plan && error.code === 'INVALID_CURSOR'
       ? 400
@@ -157,7 +166,7 @@ export function createApp(dependencies: { datasets: DatasetCatalog; runtime: Eva
       error: {
         code: validation || plan && error.code === 'INVALID_CURSOR'
           ? 'INVALID_REQUEST'
-          : runConflict || catalog || plan ? error.code : 'RESOURCE_NOT_FOUND',
+          : runConflict || catalog || plan || report ? error.code : 'RESOURCE_NOT_FOUND',
         message,
         retryable: false,
       },
