@@ -93,6 +93,10 @@ function mapStatus(status: EvalStatusV1): SampleExecution {
       summary: status.result.summary,
       traceId: status.result.traceId,
       tokens: status.result.tokens,
+      agentOutcome: status.result.outcome,
+      ...(status.result.blockedInteraction ? { blockedInteraction: status.result.blockedInteraction } : {}),
+      durationMs: status.result.durationMs,
+      stepCount: status.result.stepCount,
     };
   }
   if (status.state === 'TIMED_OUT') {

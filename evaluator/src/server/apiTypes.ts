@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { artifactDescriptorSchema, sampleMetricsSchema } from '../evidence/schema.js';
 import { evaluationDatasetSchema } from '../datasets/schema.js';
 import { evaluationPlanSchema } from '../plans/schema.js';
+import { assertionReportSchema } from '../assertions/schema.js';
 
 export {
   createEvaluationPlanSchema,
@@ -32,11 +33,12 @@ const sampleResultFields = {
   traceId: z.string().optional(),
   requestId: z.string().optional(),
   tokens: z.object({ prompt: z.number(), completion: z.number(), total: z.number(), cached: z.number().optional() }).optional(),
+  assertions: assertionReportSchema.optional(),
   evidence: z.object({
     collectedAt: z.string(),
     files: z.object({
       request: z.string(), status: z.string(), otel: z.string().optional(), todo: z.string().optional(),
-      trace: z.string().optional(), metrics: z.string().optional(),
+      trace: z.string().optional(), metrics: z.string().optional(), assertions: z.string().optional(),
     }).strict(),
     warnings: z.array(z.string()),
   }).strict().optional(),

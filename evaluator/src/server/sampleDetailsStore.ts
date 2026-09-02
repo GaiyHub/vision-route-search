@@ -22,6 +22,7 @@ interface ManifestFileMap {
   todo?: string;
   trace?: string;
   metrics?: string;
+  assertions?: string;
 }
 
 export class SampleDetailsStore {
@@ -122,6 +123,7 @@ export class SampleDetailsStore {
     const candidates: Array<[string, string | undefined]> = [
       ['request', files.request], ['status', files.status], ['otel', files.otel], ['todo', files.todo],
       ['trace', files.trace ?? 'normalized/trace.json'], ['metrics', files.metrics ?? 'normalized/metrics.json'],
+      ['assertions', files.assertions ?? 'normalized/assertions.json'],
     ];
     const descriptors: ArtifactDescriptor[] = [];
     for (const [artifactId, path] of candidates) {

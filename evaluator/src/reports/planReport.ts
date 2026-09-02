@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { sampleMetricsSchema, type SampleMetrics } from '../evidence/schema.js';
 import { readValidatedJson, writeJsonAtomic } from '../storage/atomicFile.js';
 import type { EvaluationRun, SampleAttempt, SampleRun } from '../server/apiTypes.js';
+import { assertionReportSchema } from '../assertions/schema.js';
 
 const reportSampleSchema = z.object({
   sampleId: z.string(),
@@ -14,6 +15,7 @@ const reportSampleSchema = z.object({
   durationMs: z.number().int().nonnegative().nullable(),
   tokens: z.object({ prompt: z.number(), completion: z.number(), total: z.number(), cached: z.number().nullable() }).nullable(),
   metrics: sampleMetricsSchema.nullable(),
+  assertions: assertionReportSchema.default({ schemaVersion: 1, results: [], summary: { passed: 0, failed: 0, errors: 0 } }),
 }).strict();
 
 export const planRunReportSchema = z.object({
@@ -71,6 +73,7 @@ export class PlanReportStore {
         durationMs: attempt.durationMs ?? null,
         tokens: attempt.tokens ? { ...attempt.tokens, cached: attempt.tokens.cached ?? null } : null,
         metrics: await this.readMetrics(run.runId, sample.sampleId, attempt.attemptId),
+        assertions: attempt.assertions ?? { schemaVersion: 1, results: [], summary: { passed: 0, failed: 0, errors: 0 } },
       });
     }));
     const count = (state: typeof samples[number]['state']) => samples.filter((sample) => sample.state === state).length;

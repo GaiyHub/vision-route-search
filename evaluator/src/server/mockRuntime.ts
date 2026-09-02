@@ -34,6 +34,9 @@ export class MockEvaluationRuntime implements EvaluationRuntime {
       traceId: randomUUID().replaceAll('-', ''),
       tokens: { prompt: 128, completion: 24, total: 152, cached: 64 },
       verdict: 'PASSED',
+      agentOutcome: 'complete',
+      durationMs: this.phaseDelayMs,
+      stepCount: 1,
     };
   }
 }

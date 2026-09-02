@@ -1,7 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
+import type { ZodType } from 'zod';
+import { evaluateAssertions } from '../assertions/engine.js';
 import type { EvaluationDataset, EvaluationSample } from '../datasets/schema.js';
+import { sampleMetricsSchema, traceDocumentSchema, type SampleMetrics, type TraceDocument } from '../evidence/schema.js';
 import type { EvaluationPlan } from '../plans/schema.js';
 import { PlanReportStore } from '../reports/planReport.js';
 import { readValidatedJson, writeJsonAtomic } from '../storage/atomicFile.js';
@@ -211,6 +214,7 @@ export class RunManager {
           defaultTimeoutMs: run.planSnapshot?.plan.execution.defaultTimeoutMs ?? dataset.defaults.timeoutMs,
         }, controller.signal);
         applyResult(target, result);
+        await this.applyAssertions(run, definition, sample, target, result);
       } catch (error) {
         target.state = controller.signal.aborted ? 'CANCELLED' : 'INFRA_ERROR';
         target.phase = 'DONE';
@@ -238,6 +242,44 @@ export class RunManager {
     this.controllers.delete(run.runId);
     if (run.planId) await this.reports.generate(run);
     await writeJsonAtomic(this.path(run.runId), run);
+  }
+
+  private async applyAssertions(
+    run: EvaluationRun,
+    definition: EvaluationSample,
+    sample: SampleRun,
+    target: SampleAttempt | SampleRun,
+    result: SampleExecution,
+  ): Promise<void> {
+    const attemptId = 'attemptId' in target ? target.attemptId : undefined;
+    const normalizedRoot = attemptId
+      ? join(this.dataRoot, 'runs', run.runId, 'samples', sample.sampleId, 'attempts', attemptId, 'normalized')
+      : join(this.dataRoot, 'runs', run.runId, 'samples', sample.sampleId, 'normalized');
+    const trace = await readOptional(join(normalizedRoot, 'trace.json'), traceDocumentSchema);
+    const storedMetrics = await readOptional(join(normalizedRoot, 'metrics.json'), sampleMetricsSchema);
+    const metrics = storedMetrics ?? syntheticMetrics(result);
+    const assertions = evaluateAssertions(definition.assertions, {
+      ...(result.agentOutcome ? { outcome: result.agentOutcome } : {}),
+      finalResponse: result.summary,
+      ...(result.blockedInteraction ? { blockedInteraction: result.blockedInteraction } : {}),
+      ...(metrics ? { metrics } : {}),
+      ...(trace ? { trace } : {}),
+    });
+    target.assertions = assertions;
+    const assertionPath = join(normalizedRoot, 'assertions.json');
+    await writeJsonAtomic(assertionPath, assertions);
+    if (target.evidence) {
+      target.evidence.files.assertions = 'normalized/assertions.json';
+    }
+    const aggregate = aggregateVerdict(result.verdict, assertions.summary);
+    target.state = aggregate;
+    if (storedMetrics) {
+      await writeJsonAtomic(join(normalizedRoot, 'metrics.json'), sampleMetricsSchema.parse({
+        ...storedMetrics,
+        success: aggregate === 'PASSED',
+        verdict: aggregate,
+      }));
+    }
   }
 }
 
@@ -274,7 +316,7 @@ function applyResult(target: SampleAttempt | SampleRun, result: SampleExecution)
 
 function syncLatestAttempt(sample: SampleRun, attempt: SampleAttempt): void {
   sample.latestAttemptId = attempt.attemptId;
-  for (const field of ['startedAt', 'finishedAt', 'durationMs', 'summary', 'traceId', 'requestId', 'tokens', 'evidence'] as const) {
+  for (const field of ['startedAt', 'finishedAt', 'durationMs', 'summary', 'traceId', 'requestId', 'tokens', 'evidence', 'assertions'] as const) {
     delete sample[field];
     const value = attempt[field];
     if (value !== undefined) Object.assign(sample, { [field]: value });
@@ -296,4 +338,46 @@ function markPendingCancelled(sample: SampleRun): void {
 
 function hasPassed(target: SampleAttempt | SampleRun): boolean {
   return target.state === 'PASSED';
+}
+
+async function readOptional<T>(path: string, schema: ZodType<T>): Promise<T | undefined> {
+  try { return await readValidatedJson(path, schema); }
+  catch { return undefined; }
+}
+
+function syntheticMetrics(result: SampleExecution): SampleMetrics | undefined {
+  if (result.durationMs === undefined || result.stepCount === undefined) return undefined;
+  const tokens = result.tokens;
+  return sampleMetricsSchema.parse({
+    schemaVersion: 1,
+    success: result.verdict === 'PASSED',
+    verdict: result.verdict,
+    ...(result.agentOutcome ? { agentOutcome: result.agentOutcome } : {}),
+    tokenUsage: {
+      prompt: tokens?.prompt ?? null,
+      completion: tokens?.completion ?? null,
+      total: tokens?.total ?? null,
+      cached: tokens?.cached ?? null,
+    },
+    stepCount: result.stepCount,
+    modelCallCount: 0,
+    toolCallCount: 0,
+    cacheHitRate: tokens?.cached !== undefined && tokens.prompt > 0 ? tokens.cached / tokens.prompt : null,
+    toolSuccessRate: null,
+    toolCalls: { succeeded: 0, failed: 0, unknown: 0 },
+    durationMs: result.durationMs,
+    modelDurationMs: null,
+    toolDurationMs: null,
+    unavailable: ['toolSuccessRate'],
+  });
+}
+
+function aggregateVerdict(
+  agentVerdict: SampleExecution['verdict'],
+  assertions: { failed: number; errors: number },
+): SampleExecution['verdict'] {
+  if (agentVerdict !== 'PASSED') return agentVerdict;
+  if (assertions.errors > 0) return 'INFRA_ERROR';
+  if (assertions.failed > 0) return 'FAILED';
+  return 'PASSED';
 }

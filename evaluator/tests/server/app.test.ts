@@ -51,6 +51,30 @@ describe('本地评测 API', () => {
     await app.close();
   });
 
+  it('以确定性断言而非 Agent 自报完成决定样本结果', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'doupao-assert-run-'));
+    roots.push(root);
+    const datasetDirectory = join(root, 'datasets');
+    await mkdir(datasetDirectory);
+    await writeFile(join(datasetDirectory, 'assert.json'), JSON.stringify({
+      schemaVersion: 1, id: 'assert-run', name: '断言聚合',
+      samples: [{ id: 'answer', instruction: '回答问题', assertions: [{ type: 'finalResponse', contains: '不会出现', caseSensitive: true }] }],
+    }));
+    const datasets = new DatasetCatalog(datasetDirectory);
+    const runtime = new MockEvaluationRuntime(0);
+    const runs = new RunManager(root, datasets, runtime);
+    const app = createApp({ datasets, runtime, runs, details: new SampleDetailsStore(root), plans: new PlanRepository(root, datasets), reports: new PlanReportStore(root) });
+    const created = await app.inject({ method: 'POST', url: '/api/runs', payload: { datasetId: 'assert-run', deviceSerial: 'mock-pixel-8' } });
+    const runId = created.json().runId as string;
+    let run = await app.inject({ method: 'GET', url: `/api/runs/${runId}` });
+    for (let attempt = 0; attempt < 20 && run.json().state !== 'COMPLETED'; attempt += 1) {
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, 10));
+      run = await app.inject({ method: 'GET', url: `/api/runs/${runId}` });
+    }
+    expect(run.json()).toMatchObject({ samples: [{ state: 'FAILED', assertions: { summary: { failed: 1 } } }] });
+    await app.close();
+  });
+
   it('通过 API 创建、更新并幂等删除评测集', async () => {
     const root = await mkdtemp(join(tmpdir(), 'doupao-dataset-api-'));
     roots.push(root);

@@ -1,0 +1,20 @@
+.assertion-results {
+  margin: 18px 0;
+  padding: 14px;
+  border: 1px solid #2d3541;
+  border-radius: 10px;
+}
+
+.assertion-results > div:first-child {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.assertion-results small { color: #8490a2; }
+.assertion-result { display: flex; gap: 10px; align-items: flex-start; padding: 9px 0; border-top: 1px solid #252c36; }
+.assertion-result em { min-width: 48px; font: 700 10px ui-monospace, SFMono-Regular, monospace; font-style: normal; }
+.assertion-result.PASS em { color: #65d6ba; }
+.assertion-result.FAIL em { color: #f097a2; }
+.assertion-result.ERROR em { color: #f0bd78; }
+.assertion-result span { display: flex; flex-direction: column; gap: 3px; }

@@ -18,7 +18,7 @@ export interface EvidenceManifest {
   sampleId: string;
   traceId?: string;
   collectedAt: string;
-  files: { request: string; status: string; otel?: string; todo?: string; trace?: string; metrics?: string };
+  files: { request: string; status: string; otel?: string; todo?: string; trace?: string; metrics?: string; assertions?: string };
   warnings: string[];
 }
 
