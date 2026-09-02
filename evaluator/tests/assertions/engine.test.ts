@@ -18,6 +18,8 @@ const baseEvidence: AssertionEvidence = {
     schemaVersion: 1, runId: 'run-1', sampleId: 'sample-1', requestId: 'req-1', traceId: 'trace-1', generatedAt: '2026-01-01T00:00:00.000Z',
     events: [{ eventId: 'event-1', sequence: 0, occurredAt: '2026-01-01T00:00:00.000Z', source: { artifactId: 'otel', line: 1 }, type: 'TOOL_CALL', toolName: 'tap', success: true }],
   },
+  foregroundPackage: 'com.tencent.mm',
+  uiText: '<?xml version="1.0"?><node text="通讯录"/>',
 };
 
 describe('evaluateAssertions', () => {
@@ -31,18 +33,21 @@ describe('evaluateAssertions', () => {
       { type: 'steps', max: 3 },
       { type: 'tokens', metric: 'cached', min: 60 },
       { type: 'blockedInteraction', interaction: 'RISK', forbidden: true },
+      { type: 'foregroundPackage', equals: 'com.tencent.mm' },
+      { type: 'uiText', contains: '通讯录', caseSensitive: true },
     ];
     const report = evaluateAssertions(assertions, baseEvidence);
-    expect(report.results.map((item) => item.assertionId)).toEqual(['assertion-001', 'assertion-002', 'assertion-003', 'assertion-004', 'assertion-005', 'assertion-006', 'assertion-007', 'assertion-008']);
-    expect(report.summary).toEqual({ passed: 8, failed: 0, errors: 0 });
+    expect(report.results.map((item) => item.assertionId)).toEqual(['assertion-001', 'assertion-002', 'assertion-003', 'assertion-004', 'assertion-005', 'assertion-006', 'assertion-007', 'assertion-008', 'assertion-009', 'assertion-010']);
+    expect(report.summary).toEqual({ passed: 10, failed: 0, errors: 0 });
   });
 
   it('区分条件失败与证据缺失且不短路', () => {
+    const { foregroundPackage: _foregroundPackage, uiText: _uiText, ...missingUiEvidence } = baseEvidence;
     const report = evaluateAssertions([
       { type: 'finalResponse', contains: '支付宝', caseSensitive: true },
       { type: 'foregroundPackage', equals: 'com.tencent.mm' },
       { type: 'uiText', contains: '通讯录', caseSensitive: true },
-    ], baseEvidence);
+    ], missingUiEvidence);
     expect(report.results.map((item) => item.verdict)).toEqual(['FAIL', 'ERROR', 'ERROR']);
     expect(report.summary).toEqual({ passed: 0, failed: 1, errors: 2 });
   });

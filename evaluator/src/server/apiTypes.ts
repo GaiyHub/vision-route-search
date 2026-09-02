@@ -42,6 +42,7 @@ const sampleResultFields = {
     files: z.object({
       request: z.string(), status: z.string(), otel: z.string().optional(), todo: z.string().optional(),
       trace: z.string().optional(), metrics: z.string().optional(), assertions: z.string().optional(), judge: z.string().optional(),
+      finalScreenshot: z.string().optional(), uiHierarchy: z.string().optional(), deviceState: z.string().optional(),
     }).strict(),
     warnings: z.array(z.string()),
   }).strict().optional(),

@@ -1,10 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import { readdir } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { ZodType } from 'zod';
 import { evaluateAssertions } from '../assertions/engine.js';
 import type { EvaluationDataset, EvaluationSample } from '../datasets/schema.js';
-import { sampleMetricsSchema, traceDocumentSchema, type SampleMetrics, type TraceDocument } from '../evidence/schema.js';
+import { finalDeviceStateSchema, sampleMetricsSchema, traceDocumentSchema, type SampleMetrics, type TraceDocument } from '../evidence/schema.js';
 import type { JudgeService } from '../judge/service.js';
 import type { JudgeAssessment } from '../judge/schema.js';
 import type { EvaluationPlan } from '../plans/schema.js';
@@ -269,6 +269,8 @@ export class RunManager {
       : join(this.dataRoot, 'runs', run.runId, 'samples', sample.sampleId, 'normalized');
     const trace = await readOptional(join(normalizedRoot, 'trace.json'), traceDocumentSchema);
     const storedMetrics = await readOptional(join(normalizedRoot, 'metrics.json'), sampleMetricsSchema);
+    const deviceState = await readOptional(join(normalizedRoot, 'device-state.json'), finalDeviceStateSchema);
+    const uiText = await readOptionalText(join(normalizedRoot, '..', 'raw', 'ui-hierarchy.xml'));
     const metrics = storedMetrics ?? syntheticMetrics(result);
     const assertions = evaluateAssertions(definition.assertions, {
       ...(result.agentOutcome ? { outcome: result.agentOutcome } : {}),
@@ -276,6 +278,8 @@ export class RunManager {
       ...(result.blockedInteraction ? { blockedInteraction: result.blockedInteraction } : {}),
       ...(metrics ? { metrics } : {}),
       ...(trace ? { trace } : {}),
+      ...(deviceState?.foregroundPackage ? { foregroundPackage: deviceState.foregroundPackage } : {}),
+      ...(uiText ? { uiText } : {}),
     });
     target.assertions = assertions;
     const assertionPath = join(normalizedRoot, 'assertions.json');
@@ -384,6 +388,11 @@ function hasPassed(target: SampleAttempt | SampleRun): boolean {
 
 async function readOptional<T>(path: string, schema: ZodType<T>): Promise<T | undefined> {
   try { return await readValidatedJson(path, schema); }
+  catch { return undefined; }
+}
+
+async function readOptionalText(path: string): Promise<string | undefined> {
+  try { return await readFile(path, 'utf8'); }
   catch { return undefined; }
 }
 

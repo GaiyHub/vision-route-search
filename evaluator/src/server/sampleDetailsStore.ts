@@ -24,6 +24,9 @@ interface ManifestFileMap {
   metrics?: string;
   assertions?: string;
   judge?: string;
+  finalScreenshot?: string;
+  uiHierarchy?: string;
+  deviceState?: string;
 }
 
 export class SampleDetailsStore {
@@ -126,6 +129,9 @@ export class SampleDetailsStore {
       ['trace', files.trace ?? 'normalized/trace.json'], ['metrics', files.metrics ?? 'normalized/metrics.json'],
       ['assertions', files.assertions ?? 'normalized/assertions.json'],
       ['judge', files.judge ?? 'normalized/judge.json'],
+      ['finalScreenshot', files.finalScreenshot ?? 'raw/final-screenshot.png'],
+      ['uiHierarchy', files.uiHierarchy ?? 'raw/ui-hierarchy.xml'],
+      ['deviceState', files.deviceState ?? 'normalized/device-state.json'],
     ];
     const descriptors: ArtifactDescriptor[] = [];
     for (const [artifactId, path] of candidates) {
