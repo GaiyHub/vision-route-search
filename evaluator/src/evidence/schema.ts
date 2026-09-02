@@ -111,8 +111,16 @@ export const artifactDescriptorSchema = z.object({
   sizeBytes: z.number().int().nonnegative(),
 }).strict();
 
+export const finalDeviceStateSchema = z.object({
+  schemaVersion: z.literal(1),
+  capturedAt: z.string(),
+  foregroundPackage: z.string().optional(),
+  foregroundActivity: z.string().optional(),
+}).strict();
+
 export type TraceEvent = z.infer<typeof traceEventSchema>;
 export type TraceDocument = z.infer<typeof traceDocumentSchema>;
 export type SampleMetrics = z.infer<typeof sampleMetricsSchema>;
 export type TracePage = z.infer<typeof tracePageSchema>;
 export type ArtifactDescriptor = z.infer<typeof artifactDescriptorSchema>;
+export type FinalDeviceState = z.infer<typeof finalDeviceStateSchema>;

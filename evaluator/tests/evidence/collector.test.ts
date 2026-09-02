@@ -84,7 +84,12 @@ describe('EvidenceCollector', () => {
       ['request.json', JSON.stringify(request)], ['status.json', JSON.stringify(status)],
       [`otel-${traceId}.jsonl`, otel], [`todo-${traceId}.json`, todo],
     ]);
-    const adb = { readEvaluationArtifact: vi.fn(async (_serial, _request, name) => artifacts.get(name)) } as unknown as AdbClient;
+    const adb = {
+      readEvaluationArtifact: vi.fn(async (_serial, _request, name) => artifacts.get(name)),
+      captureScreenshot: vi.fn(async () => Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])),
+      dumpUiHierarchy: vi.fn(async () => '<?xml version="1.0"?><hierarchy text="完成"/>'),
+      readForegroundActivity: vi.fn(async () => ({ packageName: 'com.example.app', activityName: '.MainActivity' })),
+    } as unknown as AdbClient;
     const collector = new EvidenceCollector(adb, root);
     const manifest = await collector.collect('serial-1', request, status);
     expect(manifest).toMatchObject({ requestId: 'request-1', traceId, warnings: [] });
@@ -100,6 +105,9 @@ describe('EvidenceCollector', () => {
       success: true, stepCount: 1, modelCallCount: 1, toolCallCount: 1,
       cacheHitRate: 0.8, toolSuccessRate: 1,
     });
+    await expect(readFile(join(raw, 'final-screenshot.png'))).resolves.toHaveLength(8);
+    await expect(readFile(join(raw, 'ui-hierarchy.xml'), 'utf8')).resolves.toContain('完成');
+    await expect(readFile(join(normalized, 'device-state.json'), 'utf8')).resolves.toContain('com.example.app');
     await expect(collector.collect('serial-1', request, status)).resolves.toMatchObject({ traceId });
     const attemptId = 'attempt-11111111-1111-4111-8111-111111111111';
     await collector.collect('serial-1', request, status, attemptId);

@@ -10,6 +10,7 @@ import {
 } from '../contracts/evaluation.js';
 import { writeJsonAtomic } from '../storage/atomicFile.js';
 import { normalizeEvaluationEvidence } from './normalizer.js';
+import { finalDeviceStateSchema } from './schema.js';
 
 export interface EvidenceManifest {
   schemaVersion: 1;
@@ -18,7 +19,7 @@ export interface EvidenceManifest {
   sampleId: string;
   traceId?: string;
   collectedAt: string;
-  files: { request: string; status: string; otel?: string; todo?: string; trace?: string; metrics?: string; assertions?: string; judge?: string };
+  files: { request: string; status: string; otel?: string; todo?: string; trace?: string; metrics?: string; assertions?: string; judge?: string; finalScreenshot?: string; uiHierarchy?: string; deviceState?: string };
   warnings: string[];
 }
 
@@ -68,6 +69,25 @@ export class EvidenceCollector {
     } else {
       warnings.push('终态不包含 traceId，未采集 OTel/Todo');
     }
+
+    try {
+      const screenshot = await this.adb.captureScreenshot(serial);
+      await writeImmutable(join(rawDirectory, 'final-screenshot.png'), screenshot);
+      files.finalScreenshot = 'raw/final-screenshot.png';
+    } catch (error) { warnings.push(`最终截图采集失败：${messageOf(error)}`); }
+    try {
+      const hierarchy = await this.adb.dumpUiHierarchy(serial);
+      await writeImmutable(join(rawDirectory, 'ui-hierarchy.xml'), hierarchy);
+      files.uiHierarchy = 'raw/ui-hierarchy.xml';
+    } catch (error) { warnings.push(`最终 UI 层级采集失败：${messageOf(error)}`); }
+    const deviceState = finalDeviceStateSchema.parse({ schemaVersion: 1, capturedAt: new Date().toISOString() });
+    try {
+      const foreground = await this.adb.readForegroundActivity(serial);
+      deviceState.foregroundPackage = foreground.packageName;
+      deviceState.foregroundActivity = foreground.activityName;
+    } catch (error) { warnings.push(`前台 Activity 采集失败：${messageOf(error)}`); }
+    await writeJsonAtomic(join(normalizedDirectory, 'device-state.json'), deviceState);
+    files.deviceState = 'normalized/device-state.json';
 
     const manifest: EvidenceManifest = {
       schemaVersion: 1,
@@ -137,15 +157,19 @@ function invalidEvidence(message: string): InfrastructureError {
   return new InfrastructureError('EVIDENCE_CORRELATION_INVALID', message, false);
 }
 
-async function writeImmutable(path: string, content: string): Promise<void> {
+async function writeImmutable(path: string, content: string | Uint8Array): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   try {
     const handle = await open(path, 'wx', 0o600);
     try { await handle.writeFile(content); } finally { await handle.close(); }
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
-    if (await readFile(path, 'utf8') !== content) {
+    if (!Buffer.from(await readFile(path)).equals(Buffer.from(content))) {
       throw new InfrastructureError('EVIDENCE_IMMUTABLE_CONFLICT', `原始证据不可覆盖：${relative(process.cwd(), path)}`, false);
     }
   }
+}
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
