@@ -40,6 +40,16 @@ describe('本地评测 API', () => {
     expect(result.json()).toMatchObject({ state: 'COMPLETED', samples: [{ state: 'PASSED' }] });
     const history = await app.inject({ method: 'GET', url: '/api/runs' });
     expect(history.json()).toMatchObject({ runs: [{ runId, state: 'COMPLETED' }] });
+    const retried = await app.inject({
+      method: 'POST',
+      url: `/api/runs/${runId}/samples/answer-time/retries`,
+    });
+    expect(retried.statusCode).toBe(202);
+    expect(retried.json()).toMatchObject({
+      datasetId: 'doupao-smoke',
+      samples: [{ sampleId: 'answer-time', state: 'PENDING' }],
+    });
+    expect(retried.json().runId).not.toBe(runId);
     await app.close();
   });
 

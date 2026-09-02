@@ -6,6 +6,16 @@ import type { EvaluationRuntime } from './runtime.js';
 import { evaluationRunSchema, type EvaluationRun, type SampleRun } from './apiTypes.js';
 import { readValidatedJson, writeJsonAtomic } from '../storage/atomicFile.js';
 
+export class RunManagerError extends Error {
+  constructor(
+    public readonly code: 'RUN_NOT_RETRYABLE' | 'SAMPLE_NOT_RETRYABLE',
+    message: string,
+  ) {
+    super(message);
+    this.name = 'RunManagerError';
+  }
+}
+
 export class RunManager {
   private readonly controllers = new Map<string, AbortController>();
 
@@ -68,6 +78,22 @@ export class RunManager {
     return runs
       .filter((run): run is EvaluationRun => run !== null)
       .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  }
+
+  async retrySample(runId: string, sampleId: string): Promise<EvaluationRun> {
+    const source = await this.get(runId);
+    if (source.state === 'PENDING' || source.state === 'RUNNING') {
+      throw new RunManagerError('RUN_NOT_RETRYABLE', '当前批次尚未结束，请结束后重试样本');
+    }
+    const sample = source.samples.find((candidate) => candidate.sampleId === sampleId);
+    if (!sample || sample.state === 'PENDING' || sample.state === 'RUNNING') {
+      throw new RunManagerError('SAMPLE_NOT_RETRYABLE', `样本当前不可重试：${sampleId}`);
+    }
+    return this.create({
+      datasetId: source.datasetId,
+      deviceSerial: source.deviceSerial,
+      sampleIds: [sampleId],
+    });
   }
 
   async cancel(runId: string): Promise<EvaluationRun> {

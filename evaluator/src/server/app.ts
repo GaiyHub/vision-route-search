@@ -6,7 +6,7 @@ import { DatasetCatalogError, type DatasetCatalog } from './datasetCatalog.js';
 import { DatasetError } from '../datasets/loader.js';
 import { evaluationDatasetSchema } from '../datasets/schema.js';
 import type { EvaluationRuntime } from './runtime.js';
-import type { RunManager } from './runManager.js';
+import { RunManagerError, type RunManager } from './runManager.js';
 import type { SampleDetailsStore } from './sampleDetailsStore.js';
 
 export function createApp(dependencies: { datasets: DatasetCatalog; runtime: EvaluationRuntime; runs: RunManager; details: SampleDetailsStore }) {
@@ -53,6 +53,13 @@ export function createApp(dependencies: { datasets: DatasetCatalog; runtime: Eva
   });
   app.get('/api/runs', async () => ({ runs: await dependencies.runs.list() }));
   app.get<{ Params: { runId: string } }>('/api/runs/:runId', async (request) => dependencies.runs.get(request.params.runId));
+  app.post<{ Params: { runId: string; sampleId: string } }>(
+    '/api/runs/:runId/samples/:sampleId/retries',
+    async (request, reply) => {
+      const params = runSampleParams.parse(request.params);
+      return reply.code(202).send(await dependencies.runs.retrySample(params.runId, params.sampleId));
+    },
+  );
   app.get<{ Params: { runId: string; sampleId: string } }>('/api/runs/:runId/samples/:sampleId', async (request) => {
     const params = runSampleParams.parse(request.params);
     return dependencies.details.get(params.runId, params.sampleId);
@@ -77,12 +84,13 @@ export function createApp(dependencies: { datasets: DatasetCatalog; runtime: Eva
   app.setErrorHandler((error, _request, reply) => {
     const validation = error instanceof ZodError || error instanceof DatasetError;
     const catalog = error instanceof DatasetCatalogError;
+    const runConflict = error instanceof RunManagerError;
     const message = error instanceof Error ? error.message : '未知服务端错误';
-    const status = validation ? 400 : catalog && error.code === 'DATASET_CONFLICT' ? 409 : 404;
+    const status = validation ? 400 : runConflict || catalog && error.code === 'DATASET_CONFLICT' ? 409 : 404;
     void reply.code(status).send({
       schemaVersion: 1,
       error: {
-        code: validation ? 'INVALID_REQUEST' : catalog ? error.code : 'RESOURCE_NOT_FOUND',
+        code: validation ? 'INVALID_REQUEST' : runConflict || catalog ? error.code : 'RESOURCE_NOT_FOUND',
         message,
         retryable: false,
       },
