@@ -1,33 +1,88 @@
 import { StrictMode, useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { DatasetManager, type ManagedDataset } from './DatasetManager.js';
-import { SampleTraceModal } from './SampleTraceModal.js';
+import { PlanConsole } from './PlanConsole.js';
+import { RunConsole } from './RunConsole.js';
+import type { ApiClient, Device, EvaluationPlanSummary, EvaluationRun } from './types.js';
 import './styles.css';
 
-interface Device { serial:string; model:string; androidVersion:string; state:string; doupaoVersion?:string; evaluationApiVersion?:number; mock:boolean; reason?:string }
-interface RunSample { sampleId:string; state:string; phase:string; summary?:string; durationMs?:number; tokens?:{total:number;cached?:number} }
-interface Run { runId:string; state:string; samples:RunSample[]; createdAt?:string; datasetName?:string }
-async function api<T>(url:string,init?:RequestInit):Promise<T>{const response=await fetch(url,{...init,headers:{'content-type':'application/json',...init?.headers}});const body=await response.json() as T&{error?:{message:string}};if(!response.ok)throw new Error(body.error?.message??`请求失败：${response.status}`);return body}
-const terminal=new Set(['COMPLETED','CANCELLED','INTERRUPTED']);
-const labels:Record<string,string>={PENDING:'等待中',RUNNING:'执行中',COMPLETED:'已完成',CANCELLED:'已取消',PASSED:'通过',FAILED:'未通过',BLOCKED:'需人工介入',INFRA_ERROR:'基础设施异常',TIMED_OUT:'超时'};
+type Page = 'plans' | 'runs' | 'datasets';
+const terminalRuns = new Set(['COMPLETED', 'CANCELLED', 'INTERRUPTED']);
 
-export function App(){
-  const[devices,setDevices]=useState<Device[]>([]),[datasets,setDatasets]=useState<ManagedDataset[]>([]),[history,setHistory]=useState<Run[]>([]),[serial,setSerial]=useState(''),[datasetId,setDatasetId]=useState(''),[selected,setSelected]=useState<string[]>([]),[run,setRun]=useState<Run>(),[traceSampleId,setTraceSampleId]=useState<string>(),[retryingSampleId,setRetryingSampleId]=useState<string>(),[error,setError]=useState(''),[loading,setLoading]=useState(true);
-  const dataset=useMemo(()=>datasets.find(d=>d.id===datasetId),[datasets,datasetId]),device=devices.find(d=>d.serial===serial),ready=device?.state==='READY'?device:undefined,canStart=Boolean(ready&&dataset&&selected.length&&(!run||terminal.has(run.state))),runtimeLabel=devices.some(d=>!d.mock)?'ADB 真机':'Mock';
-  useEffect(()=>{void Promise.all([api<{devices:Device[]}>('/api/devices'),api<{datasets:ManagedDataset[]}>('/api/datasets'),api<{runs:Run[]}>('/api/runs')]).then(([a,b,c])=>{setDevices(a.devices);setDatasets(b.datasets);setHistory(c.runs);setRun(c.runs[0]);setSerial(a.devices.find(d=>d.state==='READY')?.serial??'');setDatasetId(b.datasets[0]?.id??'')}).catch(e=>setError(String(e))).finally(()=>setLoading(false))},[]);
-  async function reloadDatasets(preferredId?:string){const result=await api<{datasets:ManagedDataset[]}>('/api/datasets');setDatasets(result.datasets);setDatasetId(preferredId??result.datasets[0]?.id??'')}
-  useEffect(()=>setSelected(dataset?.samples.filter(s=>s.enabled).map(s=>s.id)??[]),[dataset]);
-  useEffect(()=>{if(!run||terminal.has(run.state))return;const timer=setInterval(()=>void api<Run>(`/api/runs/${run.runId}`).then(updated=>{setRun(updated);setHistory(current=>[updated,...current.filter(item=>item.runId!==updated.runId)])}).catch(e=>setError(String(e))),500);return()=>clearInterval(timer)},[run?.runId,run?.state]);
-  async function start(){if(!dataset)return;setError('');try{const created=await api<Run>('/api/runs',{method:'POST',body:JSON.stringify({datasetId:dataset.id,deviceSerial:serial,sampleIds:selected})});setRun(created);setHistory(current=>[created,...current]);setTraceSampleId(undefined)}catch(e){setError(String(e))}}
-  async function retrySample(sampleId:string){if(!run)return;setRetryingSampleId(sampleId);setError('');try{const created=await api<Run>(`/api/runs/${run.runId}/samples/${sampleId}/retries`,{method:'POST'});setRun(created);setHistory(current=>[created,...current]);setTraceSampleId(undefined)}catch(e){setError(String(e))}finally{setRetryingSampleId(undefined)}}
-  async function cancel(){if(run)setRun(await api<Run>(`/api/runs/${run.runId}/cancel`,{method:'POST'}))}
-  const done=run?.samples.filter(s=>!['PENDING','RUNNING'].includes(s.state)).length??0;
-  return <main className="shell"><header><div><p className="eyebrow">DOUPAO EVALUATION</p><h1>移动智能体评测台</h1><p>配置评测集，批量执行并观察智能体结果。</p></div><span className="badge">● {runtimeLabel}</span></header>{error&&<div className="error">{error}</div>}<section className="grid"><article className="panel"><Title n="01" title="运行配置" sub="选择评测集和目标设备"/>{loading?<p>加载中…</p>:<><label>评测集<select value={datasetId} onChange={e=>setDatasetId(e.target.value)}>{datasets.map(d=><option key={d.id} value={d.id}>{d.name}</option>)}</select></label><DatasetManager datasets={datasets} selectedId={datasetId} onChanged={reloadDatasets}/><label>目标设备<select value={serial} onChange={e=>setSerial(e.target.value)}>{devices.map(d=><option key={d.serial} value={d.serial}>{d.model} · {d.state}</option>)}</select></label>{device&&<div className="device"><strong>{device.model}</strong><code>{device.serial}</code><div><span>Android {device.androidVersion}</span>{device.doupaoVersion&&<span>豆泡 {device.doupaoVersion}</span>}{device.evaluationApiVersion&&<span>API v{device.evaluationApiVersion}</span>}</div>{device.reason&&<small>{device.reason}</small>}</div>}<div className="samples"><b>执行样本 <i>{selected.length}/{dataset?.samples.length??0}</i></b>{dataset?.samples.map(s=><label className="sample" key={s.id}><input type="checkbox" checked={selected.includes(s.id)} onChange={()=>setSelected(v=>v.includes(s.id)?v.filter(id=>id!==s.id):[...v,s.id])}/><span><strong>{s.name??s.id}</strong><small>{s.instruction}</small></span>{s.judge?.enabled&&<em>Judge</em>}</label>)}</div><button className="primary" disabled={!canStart} onClick={()=>void start()}>{run&&!terminal.has(run.state)?'评测执行中':'开始评测'}</button></>}</article><article className="panel results"><Title n="02" title="运行进度" sub="执行状态与结果持久化展示"/>{!run?<div className="empty"><span>▶</span><h3>尚未开始评测</h3><p>完成左侧配置后启动一个 Run</p></div>:<><label className="run-history">运行记录<select aria-label="运行记录" value={run.runId} onChange={e=>{setRun(history.find(item=>item.runId===e.target.value));setTraceSampleId(undefined)}}>{history.map(item=><option key={item.runId} value={item.runId}>{item.datasetName??item.runId} · {item.createdAt?new Date(item.createdAt).toLocaleString():item.runId}</option>)}</select></label><div className="runhead"><span className={`state ${run.state}`}>{labels[run.state]??run.state}</span><code>{run.runId}</code><b>{done}/{run.samples.length}</b></div><div className="progress"><i style={{width:`${run.samples.length?done/run.samples.length*100:0}%`}}/></div>{run.samples.map((s,i)=><details key={s.sampleId} open={s.state==='RUNNING'}><summary><i>{String(i+1).padStart(2,'0')}</i><span><strong>{s.sampleId}</strong><small>{s.phase}</small></span><em className={`state ${s.state}`}>{labels[s.state]??s.state}</em></summary>{(s.summary||!['PENDING','RUNNING'].includes(s.state))&&<div className="detail">{s.summary&&<p>{s.summary}</p>}<small>{s.durationMs??0}ms · Token {s.tokens?.total??0} · Cache {s.tokens?.cached??0}</small>{!['PENDING','RUNNING'].includes(s.state)&&<div className="sample-actions"><button className="trace-open" onClick={()=>setTraceSampleId(s.sampleId)}>查看指标与原始轨迹</button>{terminal.has(run.state)&&<button className="retry-sample" disabled={Boolean(retryingSampleId)} onClick={()=>void retrySample(s.sampleId)}>{retryingSampleId===s.sampleId?'重试中…':'重试该样本'}</button>}</div>}</div>}</details>)}{!terminal.has(run.state)&&<button className="cancel" onClick={()=>void cancel()}>取消运行</button>}</>}</article></section>{run&&traceSampleId&&<SampleTraceModal runId={run.runId} sampleId={traceSampleId} onClose={()=>setTraceSampleId(undefined)}/>}</main>;
+const api: ApiClient = async <T,>(url: string, init?: RequestInit): Promise<T> => {
+  const response = await fetch(url, { ...init, headers: { 'content-type': 'application/json', ...init?.headers } });
+  const body = await response.json() as T & { error?: { message?: string } };
+  if (!response.ok) throw new Error(body.error?.message ?? `请求失败：${response.status}`);
+  return body;
+};
+
+export function App() {
+  const [page, setPage] = useState<Page>('plans');
+  const [devices, setDevices] = useState<Device[]>([]);
+  const [datasets, setDatasets] = useState<ManagedDataset[]>([]);
+  const [plans, setPlans] = useState<EvaluationPlanSummary[]>([]);
+  const [runs, setRuns] = useState<EvaluationRun[]>([]);
+  const [selectedPlanId, setSelectedPlanId] = useState('');
+  const [selectedRunId, setSelectedRunId] = useState('');
+  const [selectedDatasetId, setSelectedDatasetId] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const selectedRun = useMemo(() => runs.find((run) => run.runId === selectedRunId), [runs, selectedRunId]);
+  const runtimeLabel = devices.some((device) => !device.mock) ? 'ADB 真机' : 'Mock';
+
+  useEffect(() => {
+    void Promise.all([
+      api<{ devices: Device[] }>('/api/devices'),
+      api<{ datasets: ManagedDataset[] }>('/api/datasets'),
+      api<{ plans: EvaluationPlanSummary[] }>('/api/plans?limit=100'),
+      api<{ runs: EvaluationRun[] }>('/api/runs'),
+    ]).then(([deviceResult, datasetResult, planResult, runResult]) => {
+      setDevices(deviceResult.devices);
+      setDatasets(datasetResult.datasets);
+      setPlans(planResult.plans);
+      setRuns(runResult.runs);
+      setSelectedPlanId(planResult.plans[0]?.planId ?? '');
+      setSelectedRunId(runResult.runs[0]?.runId ?? '');
+      setSelectedDatasetId(datasetResult.datasets[0]?.id ?? '');
+    }).catch((cause) => setError(cause instanceof Error ? cause.message : String(cause))).finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    if (!selectedRun || terminalRuns.has(selectedRun.state)) return;
+    const timer = setInterval(() => {
+      void api<EvaluationRun>(`/api/runs/${selectedRun.runId}`).then(updateRun).catch((cause) => setError(cause instanceof Error ? cause.message : String(cause)));
+    }, 500);
+    return () => clearInterval(timer);
+  }, [selectedRun?.runId, selectedRun?.state]);
+
+  const updateRun = (run: EvaluationRun) => {
+    setRuns((current) => [run, ...current.filter((item) => item.runId !== run.runId)]);
+    setSelectedRunId(run.runId);
+  };
+  const reloadPlans = async (preferredId?: string) => {
+    const result = await api<{ plans: EvaluationPlanSummary[] }>('/api/plans?limit=100');
+    setPlans(result.plans);
+    setSelectedPlanId(preferredId ?? result.plans[0]?.planId ?? '');
+  };
+  const reloadDatasets = async (preferredId?: string) => {
+    const result = await api<{ datasets: ManagedDataset[] }>('/api/datasets');
+    setDatasets(result.datasets);
+    setSelectedDatasetId(preferredId ?? result.datasets[0]?.id ?? '');
+  };
+  const onRunStarted = (run: EvaluationRun) => {
+    updateRun(run);
+    setPage('runs');
+  };
+  const selectedDataset = datasets.find((dataset) => dataset.id === selectedDatasetId);
+
+  return <main className="shell"><header><div><p className="eyebrow">DOUPAO EVALUATION</p><h1>移动智能体评测台</h1><p>以评测计划组织执行、轨迹与整体报告。</p></div><span className="badge">● {runtimeLabel}</span></header>
+    <nav className="top-nav" aria-label="评测台导航"><button className={page === 'plans' ? 'active' : ''} onClick={() => setPage('plans')}>评测计划</button><button className={page === 'runs' ? 'active' : ''} onClick={() => setPage('runs')}>执行记录</button><button className={page === 'datasets' ? 'active' : ''} onClick={() => setPage('datasets')}>评测集</button></nav>
+    {error && <div className="error">{error}</div>}{loading ? <div className="panel empty"><p>加载中…</p></div> : page === 'plans' ? <PlanConsole api={api} devices={devices} datasets={datasets} plans={plans} selectedPlanId={selectedPlanId} onSelect={setSelectedPlanId} onPlansChanged={reloadPlans} onRunStarted={onRunStarted}/> : page === 'runs' ? <RunConsole api={api} runs={runs} selectedRun={selectedRun} onSelect={setSelectedRunId} onRunUpdated={updateRun}/> : <section className="dataset-workspace"><article className="panel"><div className="section-head"><div><h2>评测集管理</h2><p>维护样本、断言与 Judge 标准，不在此发起执行</p></div></div><label>当前评测集<select value={selectedDatasetId} onChange={(event) => setSelectedDatasetId(event.target.value)}>{datasets.map((dataset) => <option key={dataset.id} value={dataset.id}>{dataset.name}</option>)}</select></label><DatasetManager datasets={datasets} selectedId={selectedDatasetId} onChanged={reloadDatasets}/>{selectedDataset && <div className="dataset-overview"><strong>{selectedDataset.name}</strong><p>{selectedDataset.description}</p>{selectedDataset.samples.map((sample) => <div className="sample readonly" key={sample.id}><span><strong>{sample.name ?? sample.id}</strong><small>{sample.instruction}</small></span>{sample.judge?.enabled && <em>Judge</em>}</div>)}</div>}</article></section>}
+  </main>;
 }
-function Title({n,title,sub}:{n:string;title:string;sub:string}){return <div className="title"><span>{n}</span><div><h2>{title}</h2><p>{sub}</p></div></div>}
 
 const root = document.getElementById('root');
 if (!root) throw new Error('缺少 #root 容器');
-const runtime = globalThis as typeof globalThis&{__doupaoEvaluatorRoot?:ReturnType<typeof createRoot>};
-runtime.__doupaoEvaluatorRoot??=createRoot(root);
-runtime.__doupaoEvaluatorRoot.render(<StrictMode><App /></StrictMode>);
+const runtime = globalThis as typeof globalThis & { __doupaoEvaluatorRoot?: ReturnType<typeof createRoot> };
+runtime.__doupaoEvaluatorRoot ??= createRoot(root);
+runtime.__doupaoEvaluatorRoot.render(<StrictMode><App/></StrictMode>);

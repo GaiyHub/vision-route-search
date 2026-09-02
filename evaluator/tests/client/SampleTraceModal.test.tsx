@@ -13,7 +13,7 @@ describe('SampleTraceModal', () => {
   it('展示关键指标、轨迹详情并按类型重新查询', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.endsWith('/samples/sample-1')) {
+      if (url.endsWith('/samples/sample-1/attempts/attempt-1')) {
         return Response.json({
           runId: 'run-1',
           sample: {
@@ -63,11 +63,12 @@ describe('SampleTraceModal', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    render(<SampleTraceModal runId="run-1" sampleId="sample-1" onClose={() => undefined} />);
+    render(<SampleTraceModal runId="run-1" sampleId="sample-1" attemptId="attempt-1" onClose={() => undefined} />);
 
     expect(await screen.findByText('80.0%')).toBeTruthy();
     expect(screen.getByText('2.30s')).toBeTruthy();
     expect(screen.getByText('doubao-seed · 模型调用')).toBeTruthy();
+    expect(fetchMock).toHaveBeenCalledWith('/api/runs/run-1/samples/sample-1/attempts/attempt-1');
     fireEvent.click(screen.getByText('doubao-seed · 模型调用'));
     expect(screen.getByText(/查询天气/)).toBeTruthy();
 

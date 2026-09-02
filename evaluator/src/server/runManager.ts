@@ -192,7 +192,7 @@ export class RunManager {
     run.state = 'RUNNING';
     run.startedAt ??= new Date().toISOString();
     await writeJsonAtomic(this.path(run.runId), run);
-    for (const sample of samples) {
+    for (const [sampleIndex, sample] of samples.entries()) {
       if (controller.signal.aborted) break;
       const definition = dataset.samples.find((candidate) => candidate.id === sample.sampleId);
       if (!definition) continue;
@@ -222,7 +222,10 @@ export class RunManager {
       target.durationMs = Date.parse(target.finishedAt) - Date.parse(target.startedAt!);
       if (attempt) syncLatestAttempt(sample, attempt);
       await writeJsonAtomic(this.path(run.runId), run);
-      if (!continueOnFailure && !hasPassed(target)) break;
+      if (!continueOnFailure && !hasPassed(target)) {
+        for (const remaining of samples.slice(sampleIndex + 1)) markPendingCancelled(remaining);
+        break;
+      }
     }
     if (controller.signal.aborted) {
       run.state = 'CANCELLED';
@@ -233,8 +236,8 @@ export class RunManager {
     }
     run.finishedAt = new Date().toISOString();
     this.controllers.delete(run.runId);
-    await writeJsonAtomic(this.path(run.runId), run);
     if (run.planId) await this.reports.generate(run);
+    await writeJsonAtomic(this.path(run.runId), run);
   }
 }
 
