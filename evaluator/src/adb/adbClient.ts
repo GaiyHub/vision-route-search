@@ -31,13 +31,13 @@ export class AdbClient {
     this.maxOutputBytes = options.maxOutputBytes ?? 1024 * 1024;
   }
 
-  private async execute(args: readonly string[], signal?: AbortSignal): Promise<ProcessResult> {
+  private async execute(args: readonly string[], signal?: AbortSignal, maxOutputBytes = this.maxOutputBytes): Promise<ProcessResult> {
     try {
       return await this.processAdapter.execute({
         executable: this.adbPath,
         args,
         timeoutMs: this.commandTimeoutMs,
-        maxOutputBytes: this.maxOutputBytes,
+        maxOutputBytes,
         ...(signal ? { signal } : {}),
       });
     } catch (error) {
@@ -48,9 +48,9 @@ export class AdbClient {
     }
   }
 
-  private async executeForDevice(serial: string, args: readonly string[], signal?: AbortSignal): Promise<ProcessResult> {
+  private async executeForDevice(serial: string, args: readonly string[], signal?: AbortSignal, maxOutputBytes?: number): Promise<ProcessResult> {
     if (!serial.trim()) throw new AdbRunnerError('DEVICE_NOT_SELECTED', '未选择 Android 设备', false);
-    return this.execute(['-s', serial, ...args], signal);
+    return this.execute(['-s', serial, ...args], signal, maxOutputBytes);
   }
 
   async listDevices(): Promise<AdbDevice[]> {
@@ -94,6 +94,33 @@ export class AdbClient {
       || !output.includes('EvaluationEntryActivity')
       || !output.includes('permission=android.permission.DUMP')) return undefined;
     return 1;
+  }
+
+  async captureScreenshot(serial: string): Promise<Buffer> {
+    const result = await this.executeForDevice(serial, ['exec-out', 'screencap', '-p'], undefined, 16 * 1024 * 1024);
+    const content = result.stdoutBytes ? Buffer.from(result.stdoutBytes) : Buffer.from(result.stdout, 'binary');
+    if (result.exitCode !== 0 || content.length < 8 || !content.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) {
+      throw new AdbRunnerError('EVALUATION_ARTIFACTS_UNAVAILABLE', '无法采集最终截图', true, { stderr: result.stderr });
+    }
+    return content;
+  }
+
+  async dumpUiHierarchy(serial: string): Promise<string> {
+    const result = await this.executeForDevice(serial, ['exec-out', 'uiautomator', 'dump', '/dev/tty'], undefined, 4 * 1024 * 1024);
+    const start = result.stdout.indexOf('<?xml');
+    if (result.exitCode !== 0 || start < 0) {
+      throw new AdbRunnerError('EVALUATION_ARTIFACTS_UNAVAILABLE', '无法采集最终 UI 层级', true, { stderr: result.stderr });
+    }
+    return result.stdout.slice(start).trim();
+  }
+
+  async readForegroundActivity(serial: string): Promise<{ packageName: string; activityName: string }> {
+    const result = await this.executeForDevice(serial, ['shell', 'dumpsys', 'activity', 'activities'], undefined, 4 * 1024 * 1024);
+    const match = /(?:mResumedActivity|topResumedActivity)[^\n]*\s([A-Za-z][\w.]*)\/([^\s}]+)/.exec(result.stdout);
+    if (result.exitCode !== 0 || !match?.[1] || !match[2]) {
+      throw new AdbRunnerError('EVALUATION_ARTIFACTS_UNAVAILABLE', '无法读取最终前台 Activity', true, { stderr: result.stderr });
+    }
+    return { packageName: match[1], activityName: match[2] };
   }
 
   async submit(serial: string, request: EvalRequestV1): Promise<void> {

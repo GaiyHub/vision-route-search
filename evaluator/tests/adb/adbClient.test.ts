@@ -92,4 +92,20 @@ describe('ADB 请求边界', () => {
     });
     expect(adapter.requests).toHaveLength(1);
   });
+
+  it('采集最终截图、UI 层级和前台 Activity', async () => {
+    const png = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 1]);
+    const adapter = new FakeProcessAdapter([
+      { ...ok(), stdoutBytes: png },
+      ok('UI hierchary dumped to: /dev/tty\n<?xml version="1.0"?><hierarchy/>\n'),
+      ok('  mResumedActivity: ActivityRecord{abc u0 com.example.app/.MainActivity t42}\n'),
+    ]);
+    const client = new AdbClient(adapter);
+    await expect(client.captureScreenshot('serial-1')).resolves.toEqual(png);
+    await expect(client.dumpUiHierarchy('serial-1')).resolves.toBe('<?xml version="1.0"?><hierarchy/>');
+    await expect(client.readForegroundActivity('serial-1')).resolves.toEqual({ packageName: 'com.example.app', activityName: '.MainActivity' });
+    expect(adapter.requests.map((request) => request.args.slice(2, 4))).toEqual([
+      ['exec-out', 'screencap'], ['exec-out', 'uiautomator'], ['shell', 'dumpsys'],
+    ]);
+  });
 });

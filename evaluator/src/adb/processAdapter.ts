@@ -11,6 +11,7 @@ export interface ProcessRequest {
 export interface ProcessResult {
   exitCode: number;
   stdout: string;
+  stdoutBytes?: Uint8Array;
   stderr: string;
 }
 
@@ -63,6 +64,7 @@ export class NodeProcessAdapter implements ProcessAdapter {
       child.once('close', (exitCode) => finish(() => resolve({
         exitCode: exitCode ?? -1,
         stdout: Buffer.concat(stdout).toString('utf8'),
+        stdoutBytes: Buffer.concat(stdout),
         stderr: Buffer.concat(stderr).toString('utf8'),
       })));
       if (request.signal?.aborted) abort();
