@@ -8,7 +8,7 @@ import { readValidatedJson, writeJsonAtomic } from '../storage/atomicFile.js';
 
 export class RunManagerError extends Error {
   constructor(
-    public readonly code: 'RUN_NOT_RETRYABLE' | 'SAMPLE_NOT_RETRYABLE',
+    public readonly code: 'RUN_NOT_RETRYABLE' | 'SAMPLE_NOT_RETRYABLE' | 'DEVICE_BUSY',
     message: string,
   ) {
     super(message);
@@ -18,6 +18,7 @@ export class RunManagerError extends Error {
 
 export class RunManager {
   private readonly controllers = new Map<string, AbortController>();
+  private readonly activeDeviceSerials = new Set<string>();
 
   constructor(
     private readonly dataRoot: string,
@@ -35,6 +36,9 @@ export class RunManager {
     const devices = await this.runtime.listDevices();
     if (!devices.some((device) => device.serial === input.deviceSerial && device.state === 'READY')) {
       throw new Error(`设备未就绪：${input.deviceSerial}`);
+    }
+    if (this.activeDeviceSerials.has(input.deviceSerial)) {
+      throw new RunManagerError('DEVICE_BUSY', `设备已有评测任务在运行：${input.deviceSerial}`);
     }
     const selected = dataset.samples.filter((sample) => sample.enabled && (!input.sampleIds || input.sampleIds.includes(sample.id)));
     if (selected.length === 0) throw new Error('没有可执行的评测样本');
@@ -56,11 +60,19 @@ export class RunManager {
         phase: 'QUEUED',
       })),
     });
-    await writeJsonAtomic(this.path(run.runId), run);
-    const controller = new AbortController();
-    this.controllers.set(run.runId, controller);
-    void this.execute(run, dataset, controller).catch(() => undefined);
-    return run;
+    this.activeDeviceSerials.add(input.deviceSerial);
+    try {
+      await writeJsonAtomic(this.path(run.runId), run);
+      const controller = new AbortController();
+      this.controllers.set(run.runId, controller);
+      void this.execute(run, dataset, controller)
+        .catch(() => undefined)
+        .finally(() => this.activeDeviceSerials.delete(input.deviceSerial));
+      return run;
+    } catch (error) {
+      this.activeDeviceSerials.delete(input.deviceSerial);
+      throw error;
+    }
   }
 
   async get(runId: string): Promise<EvaluationRun> {
