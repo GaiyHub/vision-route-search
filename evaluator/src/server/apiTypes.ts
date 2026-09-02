@@ -3,6 +3,8 @@ import { artifactDescriptorSchema, sampleMetricsSchema } from '../evidence/schem
 import { evaluationDatasetSchema } from '../datasets/schema.js';
 import { evaluationPlanSchema } from '../plans/schema.js';
 import { assertionReportSchema } from '../assertions/schema.js';
+import { judgeAssessmentSchema } from '../judge/schema.js';
+import { judgeRunConfigSchema } from '../judge/schema.js';
 
 export {
   createEvaluationPlanSchema,
@@ -21,7 +23,7 @@ export const deviceInfoSchema = z.object({
   reason: z.string().optional(),
 }).strict();
 
-const sampleStateSchema = z.enum(['PENDING', 'RUNNING', 'PASSED', 'FAILED', 'BLOCKED', 'INFRA_ERROR', 'TIMED_OUT', 'CANCELLED']);
+const sampleStateSchema = z.enum(['PENDING', 'RUNNING', 'PASSED', 'FAILED', 'INCONCLUSIVE', 'BLOCKED', 'INFRA_ERROR', 'TIMED_OUT', 'CANCELLED']);
 const samplePhaseSchema = z.enum(['QUEUED', 'SETUP', 'SUBMIT', 'WAIT_TERMINAL', 'COLLECT_EVIDENCE', 'ASSERT', 'JUDGE', 'PERSIST', 'DONE']);
 const sampleResultFields = {
   state: sampleStateSchema,
@@ -34,11 +36,12 @@ const sampleResultFields = {
   requestId: z.string().optional(),
   tokens: z.object({ prompt: z.number(), completion: z.number(), total: z.number(), cached: z.number().optional() }).optional(),
   assertions: assertionReportSchema.optional(),
+  judge: judgeAssessmentSchema.optional(),
   evidence: z.object({
     collectedAt: z.string(),
     files: z.object({
       request: z.string(), status: z.string(), otel: z.string().optional(), todo: z.string().optional(),
-      trace: z.string().optional(), metrics: z.string().optional(), assertions: z.string().optional(),
+      trace: z.string().optional(), metrics: z.string().optional(), assertions: z.string().optional(), judge: z.string().optional(),
     }).strict(),
     warnings: z.array(z.string()),
   }).strict().optional(),
@@ -66,6 +69,7 @@ export const evaluationRunSchema = z.object({
     plan: evaluationPlanSchema,
     dataset: evaluationDatasetSchema,
   }).strict().optional(),
+  judgeSnapshot: judgeRunConfigSchema.optional(),
   datasetId: z.string(),
   datasetName: z.string(),
   deviceSerial: z.string(),

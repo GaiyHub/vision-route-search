@@ -5,6 +5,8 @@ import type { ZodType } from 'zod';
 import { evaluateAssertions } from '../assertions/engine.js';
 import type { EvaluationDataset, EvaluationSample } from '../datasets/schema.js';
 import { sampleMetricsSchema, traceDocumentSchema, type SampleMetrics, type TraceDocument } from '../evidence/schema.js';
+import type { JudgeService } from '../judge/service.js';
+import type { JudgeAssessment } from '../judge/schema.js';
 import type { EvaluationPlan } from '../plans/schema.js';
 import { PlanReportStore } from '../reports/planReport.js';
 import { readValidatedJson, writeJsonAtomic } from '../storage/atomicFile.js';
@@ -20,7 +22,7 @@ import type { EvaluationRuntime, SampleExecution } from './runtime.js';
 
 export class RunManagerError extends Error {
   constructor(
-    public readonly code: 'RUN_NOT_RETRYABLE' | 'SAMPLE_NOT_RETRYABLE' | 'DEVICE_BUSY' | 'PLAN_STALE',
+    public readonly code: 'RUN_NOT_RETRYABLE' | 'SAMPLE_NOT_RETRYABLE' | 'DEVICE_BUSY' | 'PLAN_STALE' | 'JUDGE_NOT_READY',
     message: string,
   ) {
     super(message);
@@ -37,6 +39,7 @@ export class RunManager {
     private readonly dataRoot: string,
     private readonly datasets: DatasetCatalog,
     private readonly runtime: EvaluationRuntime,
+    private readonly judge?: JudgeService,
   ) {
     this.reports = new PlanReportStore(dataRoot);
   }
@@ -60,6 +63,9 @@ export class RunManager {
     const selected = plan.sampleIds.map((sampleId) => definitions.get(sampleId));
     if (selected.some((sample) => !sample?.enabled)) {
       throw new RunManagerError('PLAN_STALE', '计划中的样本已不存在或被禁用，请更新计划后重试');
+    }
+    if (plan.judge.enabled && selected.some((sample) => sample?.judge?.enabled) && !this.judge?.publicConfig().configured) {
+      throw new RunManagerError('JUDGE_NOT_READY', '计划启用了 LLM-as-Judge，请先完成 Judge 配置');
     }
     return this.createRun(
       dataset,
@@ -136,6 +142,7 @@ export class RunManager {
       schemaVersion: 1,
       runId: `run-${randomUUID()}`,
       ...(plan ? { planId: plan.planId, planSnapshot: { plan, dataset } } : {}),
+      ...(plan ? judgeSnapshot(this.judge) : {}),
       datasetId: dataset.id,
       datasetName: dataset.name,
       deviceSerial,
@@ -215,6 +222,11 @@ export class RunManager {
         }, controller.signal);
         applyResult(target, result);
         await this.applyAssertions(run, definition, sample, target, result);
+        if (run.planSnapshot?.plan.judge.enabled && definition.judge?.enabled) {
+          target.phase = 'JUDGE';
+          await this.applyJudge(run, definition, sample, target, result);
+        }
+        target.phase = 'DONE';
       } catch (error) {
         target.state = controller.signal.aborted ? 'CANCELLED' : 'INFRA_ERROR';
         target.phase = 'DONE';
@@ -281,6 +293,36 @@ export class RunManager {
       }));
     }
   }
+
+  private async applyJudge(
+    run: EvaluationRun,
+    definition: EvaluationSample,
+    sample: SampleRun,
+    target: SampleAttempt | SampleRun,
+    result: SampleExecution,
+  ): Promise<void> {
+    const attemptId = 'attemptId' in target ? target.attemptId : undefined;
+    const normalizedRoot = attemptId
+      ? join(this.dataRoot, 'runs', run.runId, 'samples', sample.sampleId, 'attempts', attemptId, 'normalized')
+      : join(this.dataRoot, 'runs', run.runId, 'samples', sample.sampleId, 'normalized');
+    const trace = await readOptional(join(normalizedRoot, 'trace.json'), traceDocumentSchema);
+    const judge = this.judge
+      ? await this.judge.evaluate({
+        sample: definition,
+        finalResponse: result.summary,
+        assertions: target.assertions!,
+        ...(trace ? { trace } : {}),
+      })
+      : missingJudge(definition.judge!.threshold);
+    target.judge = judge;
+    await writeJsonAtomic(join(normalizedRoot, 'judge.json'), judge);
+    if (target.evidence) target.evidence.files.judge = 'normalized/judge.json';
+    target.state = aggregateJudgeVerdict(target.state, judge);
+    const metrics = await readOptional(join(normalizedRoot, 'metrics.json'), sampleMetricsSchema);
+    if (metrics) await writeJsonAtomic(join(normalizedRoot, 'metrics.json'), sampleMetricsSchema.parse({
+      ...metrics, success: target.state === 'PASSED', verdict: target.state,
+    }));
+  }
 }
 
 function createAttempt(attemptNumber: number): SampleAttempt {
@@ -316,7 +358,7 @@ function applyResult(target: SampleAttempt | SampleRun, result: SampleExecution)
 
 function syncLatestAttempt(sample: SampleRun, attempt: SampleAttempt): void {
   sample.latestAttemptId = attempt.attemptId;
-  for (const field of ['startedAt', 'finishedAt', 'durationMs', 'summary', 'traceId', 'requestId', 'tokens', 'evidence', 'assertions'] as const) {
+  for (const field of ['startedAt', 'finishedAt', 'durationMs', 'summary', 'traceId', 'requestId', 'tokens', 'evidence', 'assertions', 'judge'] as const) {
     delete sample[field];
     const value = attempt[field];
     if (value !== undefined) Object.assign(sample, { [field]: value });
@@ -380,4 +422,29 @@ function aggregateVerdict(
   if (assertions.errors > 0) return 'INFRA_ERROR';
   if (assertions.failed > 0) return 'FAILED';
   return 'PASSED';
+}
+
+function aggregateJudgeVerdict(
+  current: SampleAttempt['state'],
+  judge: JudgeAssessment,
+): SampleAttempt['state'] {
+  if (judge.verdict === 'INFRA_ERROR' || judge.verdict === 'JUDGE_ERROR') return 'INFRA_ERROR';
+  if (current === 'INFRA_ERROR' || current === 'CANCELLED' || current === 'TIMED_OUT' || current === 'BLOCKED') return current;
+  if (current === 'FAILED' || judge.verdict === 'FAIL') return 'FAILED';
+  if (judge.verdict === 'INCONCLUSIVE') return 'INCONCLUSIVE';
+  return 'PASSED';
+}
+
+function missingJudge(threshold: number): JudgeAssessment {
+  return {
+    schemaVersion: 1, verdict: 'INFRA_ERROR', provider: 'OPENAI_COMPATIBLE', model: 'UNCONFIGURED',
+    rubricVersion: 'sample-v1', promptTemplateVersion: 'judge-v1', threshold,
+    evidenceHash: '0'.repeat(64), warnings: [], attempts: [{ attemptNumber: 1, error: 'Judge 服务未注入' }],
+  };
+}
+
+function judgeSnapshot(judge?: JudgeService): { judgeSnapshot?: { provider: 'OPENAI_COMPATIBLE'; baseUrl: string; model: string; timeoutMs: number; supportsImages: boolean } } {
+  const config = judge?.publicConfig();
+  if (!config?.configured) return {};
+  return { judgeSnapshot: { provider: config.provider, baseUrl: config.baseUrl, model: config.model, timeoutMs: config.timeoutMs, supportsImages: config.supportsImages } };
 }

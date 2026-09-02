@@ -11,8 +11,10 @@ import type { SampleDetailsStore } from './sampleDetailsStore.js';
 import { PlanRepositoryError, type PlanRepository } from '../plans/repository.js';
 import { createEvaluationPlanSchema, planIdSchema } from '../plans/schema.js';
 import { PlanReportStoreError, type PlanReportStore } from '../reports/planReport.js';
+import { judgeConfigInputSchema } from '../judge/schema.js';
+import type { JudgeService } from '../judge/service.js';
 
-export function createApp(dependencies: { datasets: DatasetCatalog; runtime: EvaluationRuntime; runs: RunManager; details: SampleDetailsStore; plans: PlanRepository; reports: PlanReportStore }) {
+export function createApp(dependencies: { datasets: DatasetCatalog; runtime: EvaluationRuntime; runs: RunManager; details: SampleDetailsStore; plans: PlanRepository; reports: PlanReportStore; judge?: JudgeService }) {
   const app = Fastify({ logger: false });
   const datasetParams = z.object({ datasetId: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/) });
   const runSampleParams = z.object({
@@ -41,6 +43,18 @@ export function createApp(dependencies: { datasets: DatasetCatalog; runtime: Eva
 
   app.get('/api/health', async () => ({ status: 'ok', runtime: dependencies.runtime.source.toLowerCase() }));
   app.get('/api/devices', async () => ({ devices: await dependencies.runtime.listDevices() }));
+  app.get('/api/judge/config', async () => dependencies.judge?.publicConfig() ?? ({ configured: false, provider: 'OPENAI_COMPATIBLE', hasApiKey: false }));
+  app.put('/api/judge/config', async (request) => {
+    if (!dependencies.judge) throw new Error('Judge 服务未启用');
+    return dependencies.judge.configure(judgeConfigInputSchema.parse(request.body));
+  });
+  app.post('/api/judge/test', async (_request, reply) => {
+    if (!dependencies.judge) return reply.code(503).send({ schemaVersion: 1, error: { code: 'JUDGE_NOT_READY', message: 'Judge 服务未启用', retryable: false } });
+    try { return await dependencies.judge.test(); }
+    catch (error) {
+      return reply.code(502).send({ schemaVersion: 1, error: { code: 'JUDGE_CONNECTION_FAILED', message: error instanceof Error ? error.message : 'Judge 连接失败', retryable: true } });
+    }
+  });
   app.get('/api/datasets', async () => ({ datasets: await dependencies.datasets.list() }));
   app.get<{ Params: { datasetId: string } }>('/api/datasets/:datasetId', async (request) => {
     const { datasetId } = datasetParams.parse(request.params);

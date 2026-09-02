@@ -4,18 +4,21 @@ import { sampleMetricsSchema, type SampleMetrics } from '../evidence/schema.js';
 import { readValidatedJson, writeJsonAtomic } from '../storage/atomicFile.js';
 import type { EvaluationRun, SampleAttempt, SampleRun } from '../server/apiTypes.js';
 import { assertionReportSchema } from '../assertions/schema.js';
+import { judgeAssessmentSchema } from '../judge/schema.js';
+import { judgeRunConfigSchema } from '../judge/schema.js';
 
 const reportSampleSchema = z.object({
   sampleId: z.string(),
   instruction: z.string(),
   attemptId: z.string(),
   attemptNumber: z.number().int().positive(),
-  state: z.enum(['PENDING', 'RUNNING', 'PASSED', 'FAILED', 'BLOCKED', 'INFRA_ERROR', 'TIMED_OUT', 'CANCELLED']),
+  state: z.enum(['PENDING', 'RUNNING', 'PASSED', 'FAILED', 'INCONCLUSIVE', 'BLOCKED', 'INFRA_ERROR', 'TIMED_OUT', 'CANCELLED']),
   summary: z.string().optional(),
   durationMs: z.number().int().nonnegative().nullable(),
   tokens: z.object({ prompt: z.number(), completion: z.number(), total: z.number(), cached: z.number().nullable() }).nullable(),
   metrics: sampleMetricsSchema.nullable(),
   assertions: assertionReportSchema.default({ schemaVersion: 1, results: [], summary: { passed: 0, failed: 0, errors: 0 } }),
+  judge: judgeAssessmentSchema.optional(),
 }).strict();
 
 export const planRunReportSchema = z.object({
@@ -26,12 +29,14 @@ export const planRunReportSchema = z.object({
   datasetId: z.string(),
   datasetName: z.string(),
   deviceSerial: z.string(),
+  judgeConfig: judgeRunConfigSchema.optional(),
   runState: z.enum(['COMPLETED', 'CANCELLED', 'INTERRUPTED']),
   generatedAt: z.string(),
   summary: z.object({
     total: z.number().int().nonnegative(),
     passed: z.number().int().nonnegative(),
     failed: z.number().int().nonnegative(),
+    inconclusive: z.number().int().nonnegative().default(0),
     blocked: z.number().int().nonnegative(),
     infraError: z.number().int().nonnegative(),
     timedOut: z.number().int().nonnegative(),
@@ -74,6 +79,7 @@ export class PlanReportStore {
         tokens: attempt.tokens ? { ...attempt.tokens, cached: attempt.tokens.cached ?? null } : null,
         metrics: await this.readMetrics(run.runId, sample.sampleId, attempt.attemptId),
         assertions: attempt.assertions ?? { schemaVersion: 1, results: [], summary: { passed: 0, failed: 0, errors: 0 } },
+        ...(attempt.judge ? { judge: attempt.judge } : {}),
       });
     }));
     const count = (state: typeof samples[number]['state']) => samples.filter((sample) => sample.state === state).length;
@@ -86,11 +92,12 @@ export class PlanReportStore {
       datasetId: run.datasetId,
       datasetName: run.datasetName,
       deviceSerial: run.deviceSerial,
+      ...(run.judgeSnapshot ? { judgeConfig: run.judgeSnapshot } : {}),
       runState: run.state,
       generatedAt: new Date().toISOString(),
       summary: {
         total: samples.length,
-        passed: count('PASSED'), failed: count('FAILED'), blocked: count('BLOCKED'),
+        passed: count('PASSED'), failed: count('FAILED'), inconclusive: count('INCONCLUSIVE'), blocked: count('BLOCKED'),
         infraError: count('INFRA_ERROR'), timedOut: count('TIMED_OUT'), cancelled: count('CANCELLED'),
         pending: count('PENDING') + count('RUNNING'),
         passRate: samples.length === 0 ? 0 : count('PASSED') / samples.length,

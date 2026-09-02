@@ -9,6 +9,7 @@ import { RunManager } from '../../src/server/runManager.js';
 import { SampleDetailsStore } from '../../src/server/sampleDetailsStore.js';
 import { PlanRepository } from '../../src/plans/repository.js';
 import { PlanReportStore } from '../../src/reports/planReport.js';
+import { JudgeService } from '../../src/judge/service.js';
 
 const roots: string[] = [];
 
@@ -106,6 +107,21 @@ describe('本地评测 API', () => {
     await app.close();
   });
 
+  it('配置并测试 Judge 时不回显 API Key', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'doupao-judge-api-'));
+    roots.push(root);
+    const datasets = new DatasetCatalog(resolve(process.cwd(), 'datasets'));
+    const runtime = new MockEvaluationRuntime(0);
+    const judge = new JudgeService(undefined, async () => new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ schemaVersion: 1, verdict: 'PASS', score: 1, reason: '连接正常', evidence: ['finalResponse'] }) } }] }), { status: 200 }));
+    const app = createApp({ datasets, runtime, runs: new RunManager(root, datasets, runtime, judge), details: new SampleDetailsStore(root), plans: new PlanRepository(root, datasets), reports: new PlanReportStore(root), judge });
+    const configured = await app.inject({ method: 'PUT', url: '/api/judge/config', payload: { baseUrl: 'https://judge.example/v1', model: 'judge-model', timeoutMs: 5000, supportsImages: false, apiKey: 'secret' } });
+    expect(configured.json()).toMatchObject({ configured: true, model: 'judge-model', hasApiKey: true });
+    expect(configured.body).not.toContain('secret');
+    expect((await app.inject({ method: 'POST', url: '/api/judge/test' })).statusCode).toBe(200);
+    expect((await app.inject({ method: 'GET', url: '/api/judge/config' })).body).not.toContain('secret');
+    await app.close();
+  });
+
   it('通过 API 管理评测计划且不会启动运行', async () => {
     const dataRoot = await mkdtemp(join(tmpdir(), 'doupao-plan-api-'));
     roots.push(dataRoot);
@@ -126,7 +142,7 @@ describe('本地评测 API', () => {
       deviceSerial: 'mock-pixel-8',
       sampleIds: ['answer-time'],
       execution: { defaultTimeoutMs: 120_000, continueOnFailure: true },
-      judge: { enabled: true },
+      judge: { enabled: false },
     };
 
     const created = await app.inject({ method: 'POST', url: '/api/plans', payload });

@@ -14,7 +14,7 @@ export interface SampleExecution {
   requestId?: string;
   evidence?: {
     collectedAt: string;
-    files: { request: string; status: string; otel?: string; todo?: string; trace?: string; metrics?: string; assertions?: string };
+    files: { request: string; status: string; otel?: string; todo?: string; trace?: string; metrics?: string; assertions?: string; judge?: string };
     warnings: string[];
   };
 }

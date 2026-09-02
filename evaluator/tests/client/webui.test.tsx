@@ -23,6 +23,7 @@ describe('评测 WebUI', () => {
       if (url === '/api/plans/plan-1' && !init?.method) return Response.json(plan);
       if (url === '/api/plans' && init?.method === 'POST') return Response.json(plan, { status: 201 });
       if (url === '/api/runs') return Response.json({ runs: [] });
+      if (url === '/api/judge/config') return Response.json({ configured: true, provider: 'OPENAI_COMPATIBLE', hasApiKey: true, baseUrl: 'https://judge.example/v1', model: 'judge-model', timeoutMs: 30000, supportsImages: false });
       if (url === '/api/plans/plan-1/runs' && init?.method === 'POST') return Response.json(run, { status: 202 });
       if (url === '/api/runs/run-plan-1') return Response.json(run);
       if (url === '/api/runs/run-plan-1/report') return Response.json({ planId: 'plan-1', runId: 'run-plan-1', generatedAt: '2026-09-02T08:02:00.000Z', summary: { total: 1, passed: 1, failed: 0, blocked: 0, infraError: 0, timedOut: 0, cancelled: 0, pending: 0, passRate: 1, durationMs: 500, totalTokens: 12, cachedTokens: 0 } });

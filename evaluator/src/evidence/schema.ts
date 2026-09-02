@@ -69,7 +69,7 @@ export const traceDocumentSchema = z.object({
 export const sampleMetricsSchema = z.object({
   schemaVersion: z.literal(1),
   success: z.boolean(),
-  verdict: z.enum(['PASSED', 'FAILED', 'BLOCKED', 'INFRA_ERROR', 'TIMED_OUT', 'CANCELLED']),
+  verdict: z.enum(['PASSED', 'FAILED', 'INCONCLUSIVE', 'BLOCKED', 'INFRA_ERROR', 'TIMED_OUT', 'CANCELLED']),
   agentOutcome: z.string().optional(),
   tokenUsage: z.object({
     prompt: nullableMetric,

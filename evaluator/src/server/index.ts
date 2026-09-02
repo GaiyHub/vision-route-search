@@ -13,6 +13,7 @@ import { RunManager } from './runManager.js';
 import { SampleDetailsStore } from './sampleDetailsStore.js';
 import { PlanRepository } from '../plans/repository.js';
 import { PlanReportStore } from '../reports/planReport.js';
+import { JudgeService } from '../judge/service.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const datasets = new DatasetCatalog(join(root, 'datasets'));
@@ -21,7 +22,8 @@ const adb = new AdbClient(new NodeProcessAdapter());
 const runtime = process.env.DOUPAO_EVALUATOR_RUNTIME === 'mock'
   ? new MockEvaluationRuntime()
   : new AdbEvaluationRuntime(adb, undefined, new EvidenceCollector(adb, dataRoot));
-const runs = new RunManager(dataRoot, datasets, runtime);
+const judge = JudgeService.fromEnvironment();
+const runs = new RunManager(dataRoot, datasets, runtime, judge);
 const plans = new PlanRepository(dataRoot, datasets);
 const app = createApp({
   datasets,
@@ -30,6 +32,7 @@ const app = createApp({
   details: new SampleDetailsStore(dataRoot),
   plans,
   reports: new PlanReportStore(dataRoot),
+  judge,
 });
 const dist = join(root, 'dist');
 try {

@@ -67,6 +67,7 @@ export interface PlanRunReport {
     total: number;
     passed: number;
     failed: number;
+    inconclusive: number;
     blocked: number;
     infraError: number;
     timedOut: number;

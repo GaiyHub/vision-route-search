@@ -3,8 +3,8 @@ import { SampleTraceModal } from './SampleTraceModal.js';
 import type { ApiClient, EvaluationRun, PlanRunReport, RunAttempt } from './types.js';
 
 const terminalRuns = new Set(['COMPLETED', 'CANCELLED', 'INTERRUPTED']);
-const terminalSamples = new Set(['PASSED', 'FAILED', 'BLOCKED', 'INFRA_ERROR', 'TIMED_OUT', 'CANCELLED']);
-const labels: Record<string, string> = { PENDING: '等待中', RUNNING: '执行中', COMPLETED: '已完成', CANCELLED: '已取消', INTERRUPTED: '已中断', PASSED: '通过', FAILED: '未通过', BLOCKED: '需人工介入', INFRA_ERROR: '基础设施异常', TIMED_OUT: '超时' };
+const terminalSamples = new Set(['PASSED', 'FAILED', 'INCONCLUSIVE', 'BLOCKED', 'INFRA_ERROR', 'TIMED_OUT', 'CANCELLED']);
+const labels: Record<string, string> = { PENDING: '等待中', RUNNING: '执行中', COMPLETED: '已完成', CANCELLED: '已取消', INTERRUPTED: '已中断', PASSED: '通过', FAILED: '未通过', INCONCLUSIVE: '无法判定', BLOCKED: '需人工介入', INFRA_ERROR: '基础设施异常', TIMED_OUT: '超时' };
 
 export function RunConsole({ api, runs, selectedRun, onSelect, onRunUpdated }: {
   api: ApiClient;
@@ -52,4 +52,3 @@ function ReportSummary({ report }: { report: PlanRunReport }) {
 }
 
 function formatDuration(value: number): string { return value < 1000 ? `${value}ms` : `${(value / 1000).toFixed(2)}s`; }
-

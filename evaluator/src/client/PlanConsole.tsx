@@ -5,13 +5,14 @@ import type { ApiClient, Device, EvaluationPlan, EvaluationPlanSummary, Evaluati
 type PlanDraft = Pick<EvaluationPlan, 'name' | 'description' | 'datasetId' | 'deviceSerial' | 'sampleIds' | 'execution' | 'judge'>;
 
 export function PlanConsole({
-  api, devices, datasets, plans, selectedPlanId, onSelect, onPlansChanged, onRunStarted,
+  api, devices, datasets, plans, selectedPlanId, judgeConfigured, onSelect, onPlansChanged, onRunStarted,
 }: {
   api: ApiClient;
   devices: Device[];
   datasets: ManagedDataset[];
   plans: EvaluationPlanSummary[];
   selectedPlanId: string;
+  judgeConfigured: boolean;
   onSelect(planId: string): void;
   onPlansChanged(preferredId?: string): Promise<void>;
   onRunStarted(run: EvaluationRun): void;
@@ -82,6 +83,7 @@ export function PlanConsole({
     finally { setStarting(false); }
   };
   const draftDataset = datasets.find((item) => item.id === draft?.datasetId);
+  const judgeRequired = Boolean(selected?.judge.enabled && selected.sampleIds.some((sampleId) => dataset?.samples.find((sample) => sample.id === sampleId)?.judge?.enabled));
 
   return <section className="workspace-grid">
     <article className="panel plan-list-panel"><div className="section-head"><div><h2>评测计划</h2><p>复用数据集、设备与执行策略</p></div><button className="primary compact" onClick={openCreate}>新建计划</button></div>
@@ -91,7 +93,7 @@ export function PlanConsole({
       {!selected ? <div className="empty"><span>＋</span><h3>创建首个评测计划</h3><p>绑定评测集、设备和执行策略后即可运行</p></div> : <>
         <div className="plan-facts"><div><small>评测集</small><strong>{dataset?.name ?? selected.datasetId}</strong></div><div><small>目标设备</small><strong>{device?.model ?? selected.deviceSerial}</strong><em className={`state ${device?.state ?? 'OFFLINE'}`}>{device?.state ?? '离线'}</em></div><div><small>样本范围</small><strong>{selected.sampleIds.length} 条</strong></div><div><small>默认超时</small><strong>{Math.round(selected.execution.defaultTimeoutMs / 1000)} 秒</strong></div></div>
         <div className="samples"><b>执行样本 <i>{selected.sampleIds.length}</i></b>{selected.sampleIds.map((sampleId) => { const sample = dataset?.samples.find((item) => item.id === sampleId); return <div className="sample readonly" key={sampleId}><span><strong>{sample?.name ?? sampleId}</strong><small>{sample?.instruction ?? '样本当前不存在'}</small></span>{sample?.judge?.enabled && selected.judge.enabled && <em>Judge</em>}</div>; })}</div>
-        {error && <div className="error">{error}</div>}<button className="primary" disabled={starting || device?.state !== 'READY'} onClick={() => void start()}>{starting ? '正在启动…' : device?.state === 'READY' ? '执行评测计划' : '设备未就绪'}</button>
+        {error && <div className="error">{error}</div>}<button className="primary" disabled={starting || device?.state !== 'READY' || judgeRequired && !judgeConfigured} onClick={() => void start()}>{starting ? '正在启动…' : device?.state !== 'READY' ? '设备未就绪' : judgeRequired && !judgeConfigured ? '请先配置 Judge' : '执行评测计划'}</button>
       </>}
     </article>
     {draft && <div className="modal-backdrop"><section className="dataset-modal" role="dialog" aria-label="评测计划编辑器"><div className="modal-head"><div><h2>{editingId ? '编辑评测计划' : '新建评测计划'}</h2><p>配置仅影响之后创建的执行记录</p></div><button onClick={() => setDraft(undefined)}>关闭</button></div>{error && <div className="error">{error}</div>}
