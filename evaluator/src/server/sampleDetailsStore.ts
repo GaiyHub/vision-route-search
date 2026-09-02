@@ -13,7 +13,7 @@ import {
   type TracePage,
 } from '../evidence/schema.js';
 import { readValidatedJson, writeJsonAtomic } from '../storage/atomicFile.js';
-import { evaluationRunSchema, sampleDetailSchema, type SampleDetail } from './apiTypes.js';
+import { evaluationRunSchema, sampleDetailSchema, type SampleDetail, type SampleRun } from './apiTypes.js';
 
 interface ManifestFileMap {
   request: string;
@@ -27,24 +27,23 @@ interface ManifestFileMap {
 export class SampleDetailsStore {
   constructor(private readonly dataRoot: string) {}
 
-  async get(runId: string, sampleId: string): Promise<SampleDetail> {
-    const run = await readValidatedJson(this.runPath(runId), evaluationRunSchema);
-    const sample = run.samples.find((candidate) => candidate.sampleId === sampleId);
-    if (!sample) throw new Error(`评测样本不存在：${sampleId}`);
-    await this.ensureNormalized(runId, sampleId);
-    const metrics = await this.readMetrics(runId, sampleId);
-    const artifacts = await this.listArtifacts(runId, sampleId);
-    return sampleDetailSchema.parse({ schemaVersion: 1, runId, sample, metrics, artifacts });
+  async get(runId: string, sampleId: string, attemptId?: string): Promise<SampleDetail> {
+    const resolved = await this.resolveSample(runId, sampleId, attemptId);
+    await this.ensureNormalized(runId, sampleId, resolved.attemptId);
+    const metrics = await this.readMetrics(runId, sampleId, resolved.attemptId);
+    const artifacts = await this.listArtifacts(runId, sampleId, resolved.attemptId);
+    return sampleDetailSchema.parse({ schemaVersion: 1, runId, sample: resolved.sample, metrics, artifacts });
   }
 
   async trace(
     runId: string,
     sampleId: string,
     options: { cursor?: string | undefined; limit: number; type?: TraceEvent['type'] | undefined },
+    attemptId?: string,
   ): Promise<TracePage> {
-    await this.assertSample(runId, sampleId);
-    await this.ensureNormalized(runId, sampleId);
-    const document = await readValidatedJson(this.normalizedPath(runId, sampleId, 'trace.json'), traceDocumentSchema);
+    const resolved = await this.resolveSample(runId, sampleId, attemptId);
+    await this.ensureNormalized(runId, sampleId, resolved.attemptId);
+    const document = await readValidatedJson(this.normalizedPath(runId, sampleId, 'trace.json', resolved.attemptId), traceDocumentSchema);
     const filtered = options.type ? document.events.filter((event) => event.type === options.type) : document.events;
     const offset = decodeCursor(options.cursor);
     if (offset > filtered.length) throw new Error('轨迹 cursor 已失效');
@@ -62,55 +61,63 @@ export class SampleDetailsStore {
     });
   }
 
-  async artifact(runId: string, sampleId: string, artifactId: string): Promise<{
+  async artifact(runId: string, sampleId: string, artifactId: string, attemptId?: string): Promise<{
     descriptor: ArtifactDescriptor;
     content: Buffer;
   }> {
-    await this.assertSample(runId, sampleId);
-    const descriptor = (await this.listArtifacts(runId, sampleId))
+    const resolved = await this.resolveSample(runId, sampleId, attemptId);
+    const descriptor = (await this.listArtifacts(runId, sampleId, resolved.attemptId))
       .find((candidate) => candidate.artifactId === artifactId);
     if (!descriptor) throw new Error(`评测产物不存在：${artifactId}`);
-    const path = this.safeArtifactPath(runId, sampleId, descriptor.path);
+    const path = this.safeArtifactPath(runId, sampleId, descriptor.path, resolved.attemptId);
     return { descriptor, content: await readFile(path) };
   }
 
-  private async assertSample(runId: string, sampleId: string): Promise<void> {
+  private async resolveSample(runId: string, sampleId: string, attemptId?: string): Promise<{ sample: SampleRun; attemptId?: string }> {
     const run = await readValidatedJson(this.runPath(runId), evaluationRunSchema);
-    if (!run.samples.some((sample) => sample.sampleId === sampleId)) {
-      throw new Error(`评测样本不存在：${sampleId}`);
-    }
+    const sample = run.samples.find((candidate) => candidate.sampleId === sampleId);
+    if (!sample) throw new Error(`评测样本不存在：${sampleId}`);
+    const resolvedAttemptId = attemptId ?? sample.latestAttemptId;
+    if (!resolvedAttemptId) return { sample };
+    const attempt = sample.attempts?.find((candidate) => candidate.attemptId === resolvedAttemptId);
+    if (!attempt) throw new Error(`样本执行尝试不存在：${resolvedAttemptId}`);
+    const { attemptId: selectedAttemptId, attemptNumber: _attemptNumber, ...result } = attempt;
+    return {
+      sample: { sampleId: sample.sampleId, instruction: sample.instruction, latestAttemptId: selectedAttemptId, attempts: sample.attempts, ...result },
+      attemptId: selectedAttemptId,
+    };
   }
 
-  private async ensureNormalized(runId: string, sampleId: string): Promise<void> {
+  private async ensureNormalized(runId: string, sampleId: string, attemptId?: string): Promise<void> {
     try {
       await Promise.all([
-        readValidatedJson(this.normalizedPath(runId, sampleId, 'trace.json'), traceDocumentSchema),
-        readValidatedJson(this.normalizedPath(runId, sampleId, 'metrics.json'), sampleMetricsSchema),
+        readValidatedJson(this.normalizedPath(runId, sampleId, 'trace.json', attemptId), traceDocumentSchema),
+        readValidatedJson(this.normalizedPath(runId, sampleId, 'metrics.json', attemptId), sampleMetricsSchema),
       ]);
       return;
     } catch { /* Derive missing or outdated normalized evidence from immutable raw files. */ }
     let files: ManifestFileMap;
-    try { files = (JSON.parse(await readFile(this.normalizedPath(runId, sampleId, 'manifest.json'), 'utf8')) as { files: ManifestFileMap }).files; }
+    try { files = (JSON.parse(await readFile(this.normalizedPath(runId, sampleId, 'manifest.json', attemptId), 'utf8')) as { files: ManifestFileMap }).files; }
     catch { return; }
     if (!files?.otel) return;
-    const request = evalRequestV1Schema.parse(JSON.parse(await readFile(this.safeArtifactPath(runId, sampleId, files.request), 'utf8')));
-    const status = evalStatusV1Schema.parse(JSON.parse(await readFile(this.safeArtifactPath(runId, sampleId, files.status), 'utf8')));
-    const otel = await readFile(this.safeArtifactPath(runId, sampleId, files.otel), 'utf8');
+    const request = evalRequestV1Schema.parse(JSON.parse(await readFile(this.safeArtifactPath(runId, sampleId, files.request, attemptId), 'utf8')));
+    const status = evalStatusV1Schema.parse(JSON.parse(await readFile(this.safeArtifactPath(runId, sampleId, files.status, attemptId), 'utf8')));
+    const otel = await readFile(this.safeArtifactPath(runId, sampleId, files.otel, attemptId), 'utf8');
     const normalized = normalizeEvaluationEvidence(request, status, otel);
     await Promise.all([
-      writeJsonAtomic(this.normalizedPath(runId, sampleId, 'trace.json'), normalized.trace),
-      writeJsonAtomic(this.normalizedPath(runId, sampleId, 'metrics.json'), normalized.metrics),
+      writeJsonAtomic(this.normalizedPath(runId, sampleId, 'trace.json', attemptId), normalized.trace),
+      writeJsonAtomic(this.normalizedPath(runId, sampleId, 'metrics.json', attemptId), normalized.metrics),
     ]);
   }
 
-  private async readMetrics(runId: string, sampleId: string): Promise<SampleMetrics | null> {
-    try { return await readValidatedJson(this.normalizedPath(runId, sampleId, 'metrics.json'), sampleMetricsSchema); }
+  private async readMetrics(runId: string, sampleId: string, attemptId?: string): Promise<SampleMetrics | null> {
+    try { return await readValidatedJson(this.normalizedPath(runId, sampleId, 'metrics.json', attemptId), sampleMetricsSchema); }
     catch { return null; }
   }
 
-  private async listArtifacts(runId: string, sampleId: string): Promise<ArtifactDescriptor[]> {
+  private async listArtifacts(runId: string, sampleId: string, attemptId?: string): Promise<ArtifactDescriptor[]> {
     let files: ManifestFileMap;
-    try { files = (JSON.parse(await readFile(this.normalizedPath(runId, sampleId, 'manifest.json'), 'utf8')) as { files: ManifestFileMap }).files; }
+    try { files = (JSON.parse(await readFile(this.normalizedPath(runId, sampleId, 'manifest.json', attemptId), 'utf8')) as { files: ManifestFileMap }).files; }
     catch { return []; }
     const candidates: Array<[string, string | undefined]> = [
       ['request', files.request], ['status', files.status], ['otel', files.otel], ['todo', files.todo],
@@ -120,7 +127,7 @@ export class SampleDetailsStore {
     for (const [artifactId, path] of candidates) {
       if (!path) continue;
       try {
-        const safePath = this.safeArtifactPath(runId, sampleId, path);
+        const safePath = this.safeArtifactPath(runId, sampleId, path, attemptId);
         const info = await stat(safePath);
         if (!info.isFile()) continue;
         descriptors.push(artifactDescriptorSchema.parse({
@@ -132,15 +139,16 @@ export class SampleDetailsStore {
   }
 
   private runPath(runId: string): string { return join(this.dataRoot, 'runs', runId, 'run.json'); }
-  private samplePath(runId: string, sampleId: string): string {
-    return join(this.dataRoot, 'runs', runId, 'samples', sampleId);
+  private samplePath(runId: string, sampleId: string, attemptId?: string): string {
+    const sampleRoot = join(this.dataRoot, 'runs', runId, 'samples', sampleId);
+    return attemptId ? join(sampleRoot, 'attempts', attemptId) : sampleRoot;
   }
-  private normalizedPath(runId: string, sampleId: string, name: string): string {
-    return join(this.samplePath(runId, sampleId), 'normalized', name);
+  private normalizedPath(runId: string, sampleId: string, name: string, attemptId?: string): string {
+    return join(this.samplePath(runId, sampleId, attemptId), 'normalized', name);
   }
-  private safeArtifactPath(runId: string, sampleId: string, path: string): string {
+  private safeArtifactPath(runId: string, sampleId: string, path: string, attemptId?: string): string {
     if (isAbsolute(path)) throw new Error('评测产物路径无效');
-    const root = resolve(this.samplePath(runId, sampleId));
+    const root = resolve(this.samplePath(runId, sampleId, attemptId));
     const target = resolve(root, path);
     const relation = relative(root, target);
     if (!relation || relation.startsWith('..') || isAbsolute(relation)) throw new Error('评测产物路径越界');

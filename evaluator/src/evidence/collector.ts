@@ -25,9 +25,12 @@ export interface EvidenceManifest {
 export class EvidenceCollector {
   constructor(private readonly adb: AdbClient, private readonly dataRoot: string) {}
 
-  async collect(serial: string, request: EvalRequestV1, terminalStatus: EvalStatusV1): Promise<EvidenceManifest> {
-    const rawDirectory = join(this.dataRoot, 'runs', request.runId, 'samples', request.sampleId, 'raw');
-    const normalizedDirectory = join(this.dataRoot, 'runs', request.runId, 'samples', request.sampleId, 'normalized');
+  async collect(serial: string, request: EvalRequestV1, terminalStatus: EvalStatusV1, attemptId?: string): Promise<EvidenceManifest> {
+    const sampleDirectory = attemptId
+      ? join(this.dataRoot, 'runs', request.runId, 'samples', request.sampleId, 'attempts', attemptId)
+      : join(this.dataRoot, 'runs', request.runId, 'samples', request.sampleId);
+    const rawDirectory = join(sampleDirectory, 'raw');
+    const normalizedDirectory = join(sampleDirectory, 'normalized');
     const requestRaw = await this.requireArtifact(serial, request, 'request.json');
     const statusRaw = await this.requireArtifact(serial, request, 'status.json');
     const storedRequest = evalRequestV1Schema.parse(JSON.parse(requestRaw));

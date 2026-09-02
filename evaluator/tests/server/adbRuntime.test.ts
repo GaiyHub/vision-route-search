@@ -73,7 +73,7 @@ describe('AdbEvaluationRuntime', () => {
       requestId: expect.stringMatching(/^req-/),
       evidence: { files: { request: 'raw/request.json', status: 'raw/status.json' }, warnings: [] },
     });
-    expect(collector.collect).toHaveBeenCalledWith('serial-1', submitted, expect.objectContaining({ state: 'COMPLETED' }));
+    expect(collector.collect).toHaveBeenCalledWith('serial-1', submitted, expect.objectContaining({ state: 'COMPLETED' }), undefined);
     expect(submitted).toMatchObject({ runId: 'run-test', sampleId: 'answer-time', timeoutMs: 30_000 });
     expect(submitted?.requestHash).toBe(hashEvalRequest({
       schemaVersion: 1,

@@ -71,7 +71,7 @@ export class AdbEvaluationRuntime implements EvaluationRuntime {
       requestHash: hashEvalRequest(requestWithoutHash),
     });
     const status = await this.runner.run(context.deviceSerial, request, signal);
-    const evidence = await this.evidenceCollector?.collect(context.deviceSerial, request, status);
+    const evidence = await this.evidenceCollector?.collect(context.deviceSerial, request, status, context.attemptId);
     return {
       ...mapStatus(status),
       requestId: request.requestId,

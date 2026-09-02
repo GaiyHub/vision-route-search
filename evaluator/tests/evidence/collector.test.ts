@@ -101,6 +101,10 @@ describe('EvidenceCollector', () => {
       cacheHitRate: 0.8, toolSuccessRate: 1,
     });
     await expect(collector.collect('serial-1', request, status)).resolves.toMatchObject({ traceId });
+    const attemptId = 'attempt-11111111-1111-4111-8111-111111111111';
+    await collector.collect('serial-1', request, status, attemptId);
+    await expect(readFile(join(root, 'runs', 'run-1', 'samples', 'sample-1', 'attempts', attemptId, 'raw', 'request.json'), 'utf8'))
+      .resolves.toBe(JSON.stringify(request));
   });
 
   it('拒绝与请求不一致的 OTel 身份', async () => {

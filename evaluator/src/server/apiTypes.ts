@@ -1,5 +1,7 @@
 import { z } from 'zod';
 import { artifactDescriptorSchema, sampleMetricsSchema } from '../evidence/schema.js';
+import { evaluationDatasetSchema } from '../datasets/schema.js';
+import { evaluationPlanSchema } from '../plans/schema.js';
 
 export {
   createEvaluationPlanSchema,
@@ -18,11 +20,11 @@ export const deviceInfoSchema = z.object({
   reason: z.string().optional(),
 }).strict();
 
-export const sampleRunSchema = z.object({
-  sampleId: z.string(),
-  instruction: z.string(),
-  state: z.enum(['PENDING', 'RUNNING', 'PASSED', 'FAILED', 'BLOCKED', 'INFRA_ERROR', 'TIMED_OUT', 'CANCELLED']),
-  phase: z.enum(['QUEUED', 'SETUP', 'SUBMIT', 'WAIT_TERMINAL', 'COLLECT_EVIDENCE', 'ASSERT', 'JUDGE', 'PERSIST', 'DONE']),
+const sampleStateSchema = z.enum(['PENDING', 'RUNNING', 'PASSED', 'FAILED', 'BLOCKED', 'INFRA_ERROR', 'TIMED_OUT', 'CANCELLED']);
+const samplePhaseSchema = z.enum(['QUEUED', 'SETUP', 'SUBMIT', 'WAIT_TERMINAL', 'COLLECT_EVIDENCE', 'ASSERT', 'JUDGE', 'PERSIST', 'DONE']);
+const sampleResultFields = {
+  state: sampleStateSchema,
+  phase: samplePhaseSchema,
   startedAt: z.string().optional(),
   finishedAt: z.string().optional(),
   durationMs: z.number().int().nonnegative().optional(),
@@ -38,11 +40,30 @@ export const sampleRunSchema = z.object({
     }).strict(),
     warnings: z.array(z.string()),
   }).strict().optional(),
+};
+
+export const sampleAttemptSchema = z.object({
+  attemptId: z.string().regex(/^attempt-[0-9a-f-]{36}$/i),
+  attemptNumber: z.number().int().positive(),
+  ...sampleResultFields,
+}).strict();
+
+export const sampleRunSchema = z.object({
+  sampleId: z.string(),
+  instruction: z.string(),
+  latestAttemptId: z.string().optional(),
+  attempts: z.array(sampleAttemptSchema).min(1).optional(),
+  ...sampleResultFields,
 }).strict();
 
 export const evaluationRunSchema = z.object({
   schemaVersion: z.literal(1),
   runId: z.string(),
+  planId: z.string().optional(),
+  planSnapshot: z.object({
+    plan: evaluationPlanSchema,
+    dataset: evaluationDatasetSchema,
+  }).strict().optional(),
   datasetId: z.string(),
   datasetName: z.string(),
   deviceSerial: z.string(),
@@ -72,4 +93,5 @@ export const sampleDetailSchema = z.object({
 export type DeviceInfo = z.infer<typeof deviceInfoSchema>;
 export type EvaluationRun = z.infer<typeof evaluationRunSchema>;
 export type SampleRun = z.infer<typeof sampleRunSchema>;
+export type SampleAttempt = z.infer<typeof sampleAttemptSchema>;
 export type SampleDetail = z.infer<typeof sampleDetailSchema>;

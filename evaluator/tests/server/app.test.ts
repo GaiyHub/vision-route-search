@@ -45,12 +45,8 @@ describe('本地评测 API', () => {
       method: 'POST',
       url: `/api/runs/${runId}/samples/answer-time/retries`,
     });
-    expect(retried.statusCode).toBe(202);
-    expect(retried.json()).toMatchObject({
-      datasetId: 'doupao-smoke',
-      samples: [{ sampleId: 'answer-time', state: 'PENDING' }],
-    });
-    expect(retried.json().runId).not.toBe(runId);
+    expect(retried.statusCode).toBe(409);
+    expect(retried.json()).toMatchObject({ error: { code: 'RUN_NOT_RETRYABLE' } });
     await app.close();
   });
 
@@ -101,7 +97,7 @@ describe('本地评测 API', () => {
     const payload = {
       name: '真机核心回归',
       datasetId: 'doupao-smoke',
-      deviceSerial: 'temporarily-offline-device',
+      deviceSerial: 'mock-pixel-8',
       sampleIds: ['answer-time'],
       execution: { defaultTimeoutMs: 120_000, continueOnFailure: true },
       judge: { enabled: true },
@@ -120,6 +116,33 @@ describe('本地评测 API', () => {
     const invalid = await app.inject({ method: 'POST', url: '/api/plans', payload: { ...payload, sampleIds: ['missing'] } });
     expect(invalid.statusCode).toBe(404);
     expect(invalid.json()).toMatchObject({ error: { code: 'SAMPLE_NOT_FOUND' } });
+
+    const started = await app.inject({ method: 'POST', url: `/api/plans/${planId}/runs` });
+    expect(started.statusCode).toBe(202);
+    const runId = started.json().runId as string;
+    expect(started.json()).toMatchObject({
+      planId,
+      planSnapshot: { plan: { name: '已更新回归' }, dataset: { id: 'doupao-smoke' } },
+      samples: [{ sampleId: 'answer-time', attempts: [{ attemptNumber: 1 }] }],
+    });
+    let run = await app.inject({ method: 'GET', url: `/api/runs/${runId}` });
+    for (let attempt = 0; attempt < 20 && run.json().state !== 'COMPLETED'; attempt += 1) {
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, 10));
+      run = await app.inject({ method: 'GET', url: `/api/runs/${runId}` });
+    }
+    const retried = await app.inject({ method: 'POST', url: `/api/runs/${runId}/samples/answer-time/retries` });
+    expect(retried.statusCode).toBe(202);
+    expect(retried.json().runId).toBe(runId);
+    expect(retried.json().samples[0].attempts).toHaveLength(2);
+    expect(retried.json().samples[0].attempts[0].state).toBe('PASSED');
+    const firstAttemptId = retried.json().samples[0].attempts[0].attemptId as string;
+    const firstAttempt = await app.inject({
+      method: 'GET',
+      url: `/api/runs/${runId}/samples/answer-time/attempts/${firstAttemptId}`,
+    });
+    expect(firstAttempt.json()).toMatchObject({ sample: { latestAttemptId: firstAttemptId, state: 'PASSED' }, metrics: null });
+    const planRuns = await app.inject({ method: 'GET', url: `/api/plans/${planId}/runs` });
+    expect(planRuns.json()).toMatchObject({ runs: [{ runId, planId }] });
     await app.close();
   });
 

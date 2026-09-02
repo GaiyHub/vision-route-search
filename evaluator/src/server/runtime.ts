@@ -16,6 +16,7 @@ export interface SampleExecution {
 
 export interface SampleExecutionContext {
   runId: string;
+  attemptId?: string;
   deviceSerial: string;
   defaultTimeoutMs: number;
 }

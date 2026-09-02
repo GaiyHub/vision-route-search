@@ -396,12 +396,14 @@
 
 ### Task 25：实现 PlanRun 与 SampleAttempt（M）
 
+**状态：** [x] 已完成（2026-09-02）。
+
 **描述：** 从计划创建不可变执行快照，建立 `planId/runId/sampleId/attemptId` 归属，并将单样本重试改为原 Run 新 Attempt。
 
 **验收标准：**
-- [ ] 启动计划前重新检查数据集、样本和设备 readiness；每次启动生成独立 Run。
-- [ ] 更新计划不改变历史 Run 快照；重试保留旧 Attempt 和证据。
-- [ ] 既有 Run 可继续只读查看，旧客户端查询接口不被破坏。
+- [x] 启动计划前重新检查数据集、样本和设备 readiness；每次启动生成独立 Run。
+- [x] 更新计划不改变历史 Run 快照；重试保留旧 Attempt 和证据。
+- [x] 既有 Run 可继续只读查看，旧客户端查询接口不被破坏。
 
 **验证：** RunManager 与 API 集成测试；`cd evaluator && npm run typecheck && npm test && npm run build`
 

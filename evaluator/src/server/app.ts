@@ -21,6 +21,12 @@ export function createApp(dependencies: { datasets: DatasetCatalog; runtime: Eva
   const artifactParams = runSampleParams.extend({
     artifactId: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/),
   });
+  const attemptParams = runSampleParams.extend({
+    attemptId: z.string().regex(/^attempt-[0-9a-f-]{36}$/i),
+  });
+  const attemptArtifactParams = attemptParams.extend({
+    artifactId: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/),
+  });
   const traceQuery = z.object({
     cursor: z.string().optional(),
     limit: z.coerce.number().int().min(1).max(200).default(50),
@@ -69,6 +75,16 @@ export function createApp(dependencies: { datasets: DatasetCatalog; runtime: Eva
     const { planId } = planParams.parse(request.params);
     return dependencies.plans.update(planId, createEvaluationPlanSchema.parse(request.body));
   });
+  app.post<{ Params: { planId: string } }>('/api/plans/:planId/runs', async (request, reply) => {
+    const { planId } = planParams.parse(request.params);
+    const plan = await dependencies.plans.get(planId);
+    return reply.code(202).send(await dependencies.runs.createFromPlan(plan));
+  });
+  app.get<{ Params: { planId: string } }>('/api/plans/:planId/runs', async (request) => {
+    const { planId } = planParams.parse(request.params);
+    await dependencies.plans.get(planId);
+    return { runs: await dependencies.runs.list(planId) };
+  });
   app.post('/api/runs', async (request, reply) => {
     const input = createRunRequestSchema.parse(request.body);
     return reply.code(202).send(await dependencies.runs.create(input));
@@ -86,6 +102,13 @@ export function createApp(dependencies: { datasets: DatasetCatalog; runtime: Eva
     const params = runSampleParams.parse(request.params);
     return dependencies.details.get(params.runId, params.sampleId);
   });
+  app.get<{ Params: { runId: string; sampleId: string; attemptId: string } }>(
+    '/api/runs/:runId/samples/:sampleId/attempts/:attemptId',
+    async (request) => {
+      const params = attemptParams.parse(request.params);
+      return dependencies.details.get(params.runId, params.sampleId, params.attemptId);
+    },
+  );
   app.get<{ Params: { runId: string; sampleId: string }; Querystring: Record<string, unknown> }>(
     '/api/runs/:runId/samples/:sampleId/trace',
     async (request) => {
@@ -98,6 +121,21 @@ export function createApp(dependencies: { datasets: DatasetCatalog; runtime: Eva
     async (request, reply) => {
       const params = artifactParams.parse(request.params);
       const artifact = await dependencies.details.artifact(params.runId, params.sampleId, params.artifactId);
+      return reply.type(artifact.descriptor.mediaType).send(artifact.content);
+    },
+  );
+  app.get<{ Params: { runId: string; sampleId: string; attemptId: string }; Querystring: Record<string, unknown> }>(
+    '/api/runs/:runId/samples/:sampleId/attempts/:attemptId/trace',
+    async (request) => {
+      const params = attemptParams.parse(request.params);
+      return dependencies.details.trace(params.runId, params.sampleId, traceQuery.parse(request.query), params.attemptId);
+    },
+  );
+  app.get<{ Params: { runId: string; sampleId: string; attemptId: string; artifactId: string } }>(
+    '/api/runs/:runId/samples/:sampleId/attempts/:attemptId/artifacts/:artifactId',
+    async (request, reply) => {
+      const params = attemptArtifactParams.parse(request.params);
+      const artifact = await dependencies.details.artifact(params.runId, params.sampleId, params.artifactId, params.attemptId);
       return reply.type(artifact.descriptor.mediaType).send(artifact.content);
     },
   );
