@@ -96,7 +96,7 @@ export function App() {
       <aside className="app-sidebar">
         <p className="sidebar-label">工作区</p>
         <nav className="top-nav" aria-label="评测台导航">
-          {(Object.keys(pageMeta) as Page[]).map((item) => <button key={item} className={page === item ? 'active' : ''} onClick={() => setPage(item)}><span aria-hidden="true">{pageMeta[item].icon}</span>{pageMeta[item].label}</button>)}
+          {(Object.keys(pageMeta) as Page[]).map((item) => <button key={item} className={page === item ? 'active' : ''} onClick={() => setPage(item)}><span aria-hidden="true">{pageMeta[item].icon}</span><span className="nav-label">{pageMeta[item].label}</span></button>)}
         </nav>
         <div className="sidebar-footer"><span>DOUPAO</span><small>Evaluation Console</small></div>
       </aside>
