@@ -8,11 +8,11 @@ import type { ApiClient, Device, EvaluationPlanSummary, EvaluationRun } from './
 import './styles.css';
 import './theme.css';
 
-type Page = 'plans' | 'runs' | 'datasets' | 'judge';
+type Page = 'plans' | 'datasets' | 'judge';
+type PlanView = 'overview' | 'runs';
 const terminalRuns = new Set(['COMPLETED', 'CANCELLED', 'INTERRUPTED']);
 const pageMeta: Record<Page, { label: string; description: string; icon: string }> = {
   plans: { label: '评测计划', description: '组织评测集、设备与执行策略', icon: '▣' },
-  runs: { label: '执行记录', description: '查看运行结果、指标与原始轨迹', icon: '↻' },
   datasets: { label: '评测集', description: '管理样本、断言与 Judge 标准', icon: '▤' },
   judge: { label: 'Judge', description: '配置 LLM-as-Judge 评测能力', icon: '✦' },
 };
@@ -26,6 +26,7 @@ const api: ApiClient = async <T,>(url: string, init?: RequestInit): Promise<T> =
 
 export function App() {
   const [page, setPage] = useState<Page>('plans');
+  const [planView, setPlanView] = useState<PlanView>('overview');
   const [devices, setDevices] = useState<Device[]>([]);
   const [datasets, setDatasets] = useState<ManagedDataset[]>([]);
   const [plans, setPlans] = useState<EvaluationPlanSummary[]>([]);
@@ -36,7 +37,8 @@ export function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [judgeConfigured, setJudgeConfigured] = useState(false);
-  const selectedRun = useMemo(() => runs.find((run) => run.runId === selectedRunId), [runs, selectedRunId]);
+  const selectedPlanRuns = useMemo(() => runs.filter((run) => run.planId === selectedPlanId || run.planSnapshot?.plan.planId === selectedPlanId), [runs, selectedPlanId]);
+  const selectedRun = useMemo(() => selectedPlanRuns.find((run) => run.runId === selectedRunId) ?? selectedPlanRuns[0], [selectedPlanRuns, selectedRunId]);
   const runtimeLabel = devices.some((device) => !device.mock) ? 'ADB 真机' : 'Mock';
 
   useEffect(() => {
@@ -51,8 +53,9 @@ export function App() {
       setDatasets(datasetResult.datasets);
       setPlans(planResult.plans);
       setRuns(runResult.runs);
-      setSelectedPlanId(planResult.plans[0]?.planId ?? '');
-      setSelectedRunId(runResult.runs[0]?.runId ?? '');
+      const firstPlanId = planResult.plans[0]?.planId ?? '';
+      setSelectedPlanId(firstPlanId);
+      setSelectedRunId(runResult.runs.find((run) => run.planId === firstPlanId || run.planSnapshot?.plan.planId === firstPlanId)?.runId ?? '');
       setSelectedDatasetId(datasetResult.datasets[0]?.id ?? '');
       setJudgeConfigured(judgeResult.configured);
     }).catch((cause) => setError(cause instanceof Error ? cause.message : String(cause))).finally(() => setLoading(false));
@@ -82,7 +85,8 @@ export function App() {
   };
   const onRunStarted = (run: EvaluationRun) => {
     updateRun(run);
-    setPage('runs');
+    setPage('plans');
+    setPlanView('runs');
   };
   const selectedDataset = datasets.find((dataset) => dataset.id === selectedDatasetId);
 
@@ -96,14 +100,14 @@ export function App() {
       <aside className="app-sidebar">
         <p className="sidebar-label">工作区</p>
         <nav className="top-nav" aria-label="评测台导航">
-          {(Object.keys(pageMeta) as Page[]).map((item) => <button key={item} className={page === item ? 'active' : ''} onClick={() => setPage(item)}><span aria-hidden="true">{pageMeta[item].icon}</span><span className="nav-label">{pageMeta[item].label}</span></button>)}
+          {(Object.keys(pageMeta) as Page[]).map((item) => <button key={item} className={page === item ? 'active' : ''} onClick={() => { setPage(item); if (item === 'plans') setPlanView('overview'); }}><span aria-hidden="true">{pageMeta[item].icon}</span><span className="nav-label">{pageMeta[item].label}</span></button>)}
         </nav>
         <div className="sidebar-footer"><span>DOUPAO</span><small>Evaluation Console</small></div>
       </aside>
       <section className="workspace-stage">
-        <div className="workspace-bar"><div><span>工作区&nbsp; / &nbsp;</span><strong>{pageMeta[page].label}</strong></div><p>{pageMeta[page].description}</p></div>
+        <div className="workspace-bar"><div><span>工作区&nbsp; / &nbsp;</span><strong>{pageMeta[page].label}</strong></div><p>{page === 'plans' && planView === 'runs' ? '查看当前计划的运行批次、指标与轨迹' : pageMeta[page].description}</p></div>
         <div className="workspace-content">
-          {error && <div className="error">{error}</div>}{loading ? <div className="panel empty"><p>加载中…</p></div> : page === 'plans' ? <PlanConsole api={api} devices={devices} datasets={datasets} plans={plans} selectedPlanId={selectedPlanId} judgeConfigured={judgeConfigured} onSelect={setSelectedPlanId} onPlansChanged={reloadPlans} onRunStarted={onRunStarted}/> : page === 'runs' ? <RunConsole api={api} runs={runs} selectedRun={selectedRun} onSelect={setSelectedRunId} onRunUpdated={updateRun}/> : page === 'judge' ? <JudgeSettings api={api} onConfigured={setJudgeConfigured}/> : <section className="dataset-workspace"><article className="panel"><div className="section-head"><div><h2>评测集管理</h2><p>维护样本、断言与 Judge 标准，不在此发起执行</p></div></div><label>当前评测集<select value={selectedDatasetId} onChange={(event) => setSelectedDatasetId(event.target.value)}>{datasets.map((dataset) => <option key={dataset.id} value={dataset.id}>{dataset.name}</option>)}</select></label><DatasetManager datasets={datasets} selectedId={selectedDatasetId} onChanged={reloadDatasets}/>{selectedDataset && <div className="dataset-overview"><strong>{selectedDataset.name}</strong><p>{selectedDataset.description}</p>{selectedDataset.samples.map((sample) => <div className="sample readonly" key={sample.id}><span><strong>{sample.name ?? sample.id}</strong><small>{sample.instruction}</small></span>{sample.judge?.enabled && <em>Judge</em>}</div>)}</div>}</article></section>}
+          {error && <div className="error">{error}</div>}{loading ? <div className="panel empty"><p>加载中…</p></div> : page === 'plans' ? <><nav className="plan-subnav" aria-label="评测计划详情导航"><button className={planView === 'overview' ? 'active' : ''} onClick={() => setPlanView('overview')}>计划概览</button><button className={planView === 'runs' ? 'active' : ''} onClick={() => setPlanView('runs')}>执行记录<span>{selectedPlanRuns.length}</span></button></nav>{planView === 'overview' ? <PlanConsole api={api} devices={devices} datasets={datasets} plans={plans} selectedPlanId={selectedPlanId} judgeConfigured={judgeConfigured} onSelect={setSelectedPlanId} onPlansChanged={reloadPlans} onRunStarted={onRunStarted}/> : <RunConsole api={api} runs={selectedPlanRuns} selectedRun={selectedRun} onSelect={setSelectedRunId} onRunUpdated={updateRun}/>}</> : page === 'judge' ? <JudgeSettings api={api} onConfigured={setJudgeConfigured}/> : <section className="dataset-workspace"><article className="panel"><div className="section-head"><div><h2>评测集管理</h2><p>维护样本、断言与 Judge 标准，不在此发起执行</p></div></div><label>当前评测集<select value={selectedDatasetId} onChange={(event) => setSelectedDatasetId(event.target.value)}>{datasets.map((dataset) => <option key={dataset.id} value={dataset.id}>{dataset.name}</option>)}</select></label><DatasetManager datasets={datasets} selectedId={selectedDatasetId} onChanged={reloadDatasets}/>{selectedDataset && <div className="dataset-overview"><strong>{selectedDataset.name}</strong><p>{selectedDataset.description}</p>{selectedDataset.samples.map((sample) => <div className="sample readonly" key={sample.id}><span><strong>{sample.name ?? sample.id}</strong><small>{sample.instruction}</small></span>{sample.judge?.enabled && <em>Judge</em>}</div>)}</div>}</article></section>}
         </div>
       </section>
     </div>
