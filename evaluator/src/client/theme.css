@@ -272,13 +272,10 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { border-color
 @media (max-width: 760px) {
   .app-topbar { grid-template-columns: 1fr auto; padding-left: 10px; }
   .workspace-switcher { display: none; }
-  .app-layout { grid-template-columns: 1fr; }
-  .app-sidebar, .app-sidebar:hover, .app-sidebar:focus-within { position: sticky; z-index: 15; top: 52px; display: block; width: 100%; height: auto; overflow: visible; padding: 6px; border-right: 0; border-bottom: 1px solid #dedede; box-shadow: none; }
-  .sidebar-label, .sidebar-footer { display: none; }
-  .app-sidebar .top-nav { grid-template-columns: repeat(4, 1fr); }
-  .app-sidebar .top-nav button { justify-content: center; gap: 5px; padding: 7px 4px; font-size: 11px; }
-  .nav-label { width: auto; opacity: 1; }
-  .app-sidebar .top-nav button.active { box-shadow: inset 0 -2px 0 #ff6c37; }
+  .app-layout { grid-template-columns: 44px minmax(0, 1fr); }
+  .app-sidebar { width: 44px; padding: 10px 3px; }
+  .app-sidebar:hover, .app-sidebar:focus-within { width: 190px; }
+  .app-sidebar .top-nav button { padding-inline: 9px; }
   .workspace-bar { align-items: flex-start; flex-direction: column; gap: 3px; padding: 8px 12px; }
   .workspace-content { padding: 10px; }
   .workspace-grid { grid-template-columns: 1fr; }
