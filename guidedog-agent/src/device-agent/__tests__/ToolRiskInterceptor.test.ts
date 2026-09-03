@@ -45,6 +45,8 @@ describe('ToolRiskInterceptor', () => {
     expect(decorated.parameters.properties._risk.description)
       .toContain('不继承整体目标');
     expect(decorated.parameters.properties._risk.description)
+      .toContain('若仍需后续提交才产生真实外部影响，本次必须填 low');
+    expect(decorated.parameters.properties._risk.description)
       .toContain('high 必须用 reason 说明');
 
     const readTool: Tool = {
@@ -134,6 +136,40 @@ describe('ToolRiskInterceptor', () => {
     expect(gate).toHaveBeenCalledWith(expect.objectContaining({
       risk: 'high',
       summary: '点击「Button "删除"」',
+    }));
+  });
+
+  it('describes input and clipboard confirmations as different operations', async () => {
+    const gate = jest.fn(async () => 'execute' as const);
+    const interceptor = new ToolRiskInterceptor({
+      gate,
+      describeTarget: (call) => call.name === 'ui_fill' ? '金额输入框' : '',
+    });
+
+    await interceptor.intercept({
+      name: 'ui_fill',
+      arguments: {
+        mode: 'ref',
+        ref: 'amount',
+        value: '1',
+        _risk: { level: 'high', reason: '测试高风险输入确认摘要' },
+      },
+    });
+    await interceptor.intercept({
+      name: 'clipboard_set',
+      arguments: {
+        text: '示例',
+        _risk: { level: 'high', reason: '测试高风险剪贴板确认摘要' },
+      },
+    });
+
+    expect(gate).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      toolName: 'ui_fill',
+      summary: '向「金额输入框」填写内容',
+    }));
+    expect(gate).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      toolName: 'clipboard_set',
+      summary: '将内容写入系统剪贴板',
     }));
   });
 

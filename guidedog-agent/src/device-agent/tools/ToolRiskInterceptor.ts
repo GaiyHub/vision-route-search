@@ -36,12 +36,12 @@ const MODEL_ASSESSED_TOOLS = new Set([
 
 const RISK_PROPERTY = {
   type: 'object' as const,
-  description: '仅评估本次调用的直接影响，不继承整体目标。high 必须用 reason 说明执行后立即产生的真实外部影响；low 可省略 reason',
+  description: '仅评估本次调用执行完成时的直接影响，不继承整体目标或后续步骤的风险。若仍需后续提交才产生真实外部影响，本次必须填 low；high 必须用 reason 说明本次调用立即产生的真实外部影响',
   properties: {
     level: {
       type: 'string' as const,
       enum: ['low', 'high'],
-      description: '调用执行后立即产生真实外部影响时填 high，否则填 low',
+      description: '本次调用自身立即产生真实外部影响时填 high；仅改变输入或中间状态、仍需后续动作才生效时填 low',
     },
     reason: {
       type: 'string' as const,
@@ -184,7 +184,7 @@ export class ToolRiskInterceptor {
     switch (name) {
       case 'ui_tap': return target ? `点击${quotedTarget}` : '点击当前界面目标';
       case 'ui_long_press': return target ? `长按${quotedTarget}` : '长按当前界面目标';
-      case 'ui_fill':
+      case 'ui_fill': return target ? `向${quotedTarget}填写内容` : '向当前输入框填写内容';
       case 'clipboard_set': return '将内容写入系统剪贴板';
       case 'ui_clear_text': return target ? `清空${quotedTarget}的内容` : '清空当前输入框';
       case 'ui_press_enter': return '提交当前输入';
