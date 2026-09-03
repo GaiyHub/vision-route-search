@@ -200,12 +200,13 @@ summary { color: #292524; }
 .sidebar-label { margin: 2px 10px 8px; color: #8a8a8a; font-size: 10px; font-weight: 700; letter-spacing: .08em; opacity: 0; text-transform: uppercase; white-space: nowrap; transition: opacity 100ms ease; }
 .app-sidebar:hover .sidebar-label, .app-sidebar:focus-within .sidebar-label { opacity: 1; }
 .app-sidebar .top-nav { display: grid; gap: 2px; width: 100%; margin: 0; padding: 0; background: transparent; border: 0; border-radius: 0; }
-.app-sidebar .top-nav button { display: flex; justify-content: flex-start; gap: 10px; width: 100%; min-height: 36px; overflow: hidden; padding: 8px 10px; color: #555; border: 0; border-radius: 6px; font-size: 13px; font-weight: 550; white-space: nowrap; }
+.app-sidebar .top-nav button { display: flex; justify-content: flex-start; gap: 10px; width: 100%; min-height: 36px; overflow: hidden; padding: 8px 10px; color: #555; border: 0; border-radius: 0; font-size: 13px; font-weight: 550; white-space: nowrap; }
 .app-sidebar .top-nav button > span:first-child { display: grid; width: 18px; flex: 0 0 18px; place-items: center; color: #777; font-size: 15px; }
 .nav-label { width: 0; overflow: hidden; opacity: 0; transition: opacity 100ms ease; }
 .app-sidebar:hover .nav-label, .app-sidebar:focus-within .nav-label { width: auto; opacity: 1; }
 .app-sidebar .top-nav button:hover { color: #2b2b2b; background: #eaeaea; }
 .app-sidebar .top-nav button.active { color: #222; background: #e4e4e4; box-shadow: inset 3px 0 0 #ff6c37; }
+.app-sidebar .top-nav button:focus-visible { outline: none; box-shadow: inset 3px 0 0 #ff6c37, inset 0 0 0 1px #d2d2d2; }
 .app-sidebar .top-nav button.active > span { color: #ff6c37; }
 .sidebar-footer { display: grid; gap: 2px; width: 190px; margin-top: auto; padding: 12px 10px 4px; color: #777; border-top: 1px solid #ddd; opacity: 0; transition: opacity 100ms ease; }
 .app-sidebar:hover .sidebar-footer, .app-sidebar:focus-within .sidebar-footer { opacity: 1; }
