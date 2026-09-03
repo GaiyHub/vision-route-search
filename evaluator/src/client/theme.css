@@ -220,6 +220,11 @@ summary { color: #292524; }
 .workspace-bar div strong { color: #3d3d3d; }
 .workspace-bar p { margin: 0; color: #858585; font-size: 11px; }
 .workspace-content { padding: 16px; }
+.plan-subnav { display: flex; gap: 2px; height: 38px; margin: -16px -16px 12px; padding: 0 14px; background: #fff; border-bottom: 1px solid #dedede; }
+.plan-subnav button { position: relative; min-height: 37px; padding: 0 11px; color: #666; background: transparent; border: 0; border-radius: 0; font-weight: 550; }
+.plan-subnav button:hover:not(:disabled) { color: #2b2b2b; background: #f7f7f7; border-color: transparent; }
+.plan-subnav button.active { color: #2b2b2b; background: #fff; box-shadow: inset 0 -2px 0 #ff6c37; }
+.plan-subnav button span { min-width: 17px; margin-left: 6px; padding: 1px 5px; color: #777; background: #ededed; border-radius: 99px; font-size: 9px; }
 
 /* Compact productivity workspace */
 .workspace-grid { grid-template-columns: minmax(250px, 280px) minmax(0, 1fr); gap: 12px; align-items: start; }
@@ -279,6 +284,7 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { border-color
   .app-sidebar .top-nav button { padding-inline: 9px; }
   .workspace-bar { align-items: flex-start; flex-direction: column; gap: 3px; padding: 8px 12px; }
   .workspace-content { padding: 10px; }
+  .plan-subnav { margin: -10px -10px 10px; }
   .workspace-grid { grid-template-columns: 1fr; }
   .section-head, .runhead { align-items: flex-start; flex-direction: column; }
   .dataset-modal, .trace-modal { width: calc(100vw - 20px); max-height: calc(100vh - 20px); }
