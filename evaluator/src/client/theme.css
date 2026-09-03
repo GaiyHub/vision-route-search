@@ -163,10 +163,69 @@ summary { color: #292524; }
 .assertion-result.PASS { border-left-color: #22c55e; }
 .assertion-result.FAIL, .assertion-result.ERROR { border-left-color: #ef4444; }
 
+/* Postman-inspired application shell */
+.shell {
+  width: 100%;
+  min-height: 100vh;
+  margin: 0;
+  padding: 0;
+  background: #f7f7f7;
+}
+
+.app-topbar {
+  position: sticky;
+  z-index: 20;
+  top: 0;
+  display: grid;
+  grid-template-columns: 210px 1fr auto;
+  align-items: center;
+  height: 52px;
+  margin: 0;
+  padding: 0 16px 0 12px;
+  background: #fff;
+  border-bottom: 1px solid #dedede;
+}
+.brand { display: flex; align-items: center; gap: 9px; color: #2b2b2b; font-size: 14px; }
+.brand-mark { display: grid; width: 28px; height: 28px; place-items: center; color: #fff; background: #ff6c37; border-radius: 6px; font-weight: 800; }
+.workspace-switcher { display: flex; align-items: center; justify-self: start; gap: 7px; height: 34px; padding: 0 10px; color: #4b4b4b; border: 1px solid transparent; border-radius: 6px; }
+.workspace-switcher:hover { background: #f5f5f5; border-color: #e5e5e5; }
+.workspace-switcher small { color: #8e8e8e; font-size: 11px; font-weight: 500; }
+.workspace-switcher strong { font-size: 13px; }
+.workspace-switcher span { color: #8e8e8e; }
+.app-topbar .badge { padding: 6px 10px; color: #7a3e20; background: #fff7f2; border-color: #ffd7c7; font-size: 11px; }
+
+.app-layout { display: grid; grid-template-columns: 210px minmax(0, 1fr); min-height: calc(100vh - 52px); }
+.app-sidebar { position: sticky; top: 52px; display: flex; flex-direction: column; height: calc(100vh - 52px); padding: 14px 9px 10px; background: #f4f4f4; border-right: 1px solid #dedede; }
+.sidebar-label { margin: 2px 10px 8px; color: #8a8a8a; font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.app-sidebar .top-nav { display: grid; gap: 2px; width: 100%; margin: 0; padding: 0; background: transparent; border: 0; border-radius: 0; }
+.app-sidebar .top-nav button { display: flex; justify-content: flex-start; gap: 10px; width: 100%; min-height: 36px; padding: 8px 10px; color: #555; border: 0; border-radius: 6px; font-size: 13px; font-weight: 550; }
+.app-sidebar .top-nav button > span { display: grid; width: 18px; place-items: center; color: #777; font-size: 15px; }
+.app-sidebar .top-nav button:hover { color: #2b2b2b; background: #eaeaea; }
+.app-sidebar .top-nav button.active { color: #222; background: #e4e4e4; box-shadow: inset 3px 0 0 #ff6c37; }
+.app-sidebar .top-nav button.active > span { color: #ff6c37; }
+.sidebar-footer { display: grid; gap: 2px; margin-top: auto; padding: 12px 10px 4px; color: #777; border-top: 1px solid #ddd; }
+.sidebar-footer span { color: #5b5b5b; font-size: 10px; font-weight: 800; letter-spacing: .13em; }
+.sidebar-footer small { font-size: 10px; }
+
+.workspace-stage { min-width: 0; background: #f7f7f7; }
+.workspace-bar { display: flex; align-items: center; justify-content: space-between; min-height: 46px; padding: 8px 20px; background: #fff; border-bottom: 1px solid #dedede; }
+.workspace-bar div { display: flex; align-items: center; font-size: 12px; }
+.workspace-bar div span { color: #939393; }
+.workspace-bar div strong { color: #3d3d3d; }
+.workspace-bar p { margin: 0; color: #858585; font-size: 11px; }
+.workspace-content { padding: 16px; }
+
 @media (max-width: 760px) {
-  .shell { width: min(100% - 24px, 1240px); padding: 22px 0 36px; }
-  header h1 { font-size: 28px; }
-  .top-nav { display: grid; grid-template-columns: repeat(2, 1fr); width: 100%; }
+  .app-topbar { grid-template-columns: 1fr auto; padding-left: 10px; }
+  .workspace-switcher { display: none; }
+  .app-layout { grid-template-columns: 1fr; }
+  .app-sidebar { position: sticky; z-index: 15; top: 52px; display: block; width: 100%; height: auto; padding: 6px; border-right: 0; border-bottom: 1px solid #dedede; }
+  .sidebar-label, .sidebar-footer { display: none; }
+  .app-sidebar .top-nav { grid-template-columns: repeat(4, 1fr); }
+  .app-sidebar .top-nav button { justify-content: center; gap: 5px; padding: 7px 4px; font-size: 11px; }
+  .app-sidebar .top-nav button.active { box-shadow: inset 0 -2px 0 #ff6c37; }
+  .workspace-bar { align-items: flex-start; flex-direction: column; gap: 3px; padding: 8px 12px; }
+  .workspace-content { padding: 10px; }
   .workspace-grid { grid-template-columns: 1fr; }
   .section-head, .runhead { align-items: flex-start; flex-direction: column; }
   .dataset-modal, .trace-modal { width: calc(100vw - 20px); max-height: calc(100vh - 20px); }

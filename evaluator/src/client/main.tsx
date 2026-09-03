@@ -10,6 +10,12 @@ import './theme.css';
 
 type Page = 'plans' | 'runs' | 'datasets' | 'judge';
 const terminalRuns = new Set(['COMPLETED', 'CANCELLED', 'INTERRUPTED']);
+const pageMeta: Record<Page, { label: string; description: string; icon: string }> = {
+  plans: { label: '评测计划', description: '组织评测集、设备与执行策略', icon: '▣' },
+  runs: { label: '执行记录', description: '查看运行结果、指标与原始轨迹', icon: '↻' },
+  datasets: { label: '评测集', description: '管理样本、断言与 Judge 标准', icon: '▤' },
+  judge: { label: 'Judge', description: '配置 LLM-as-Judge 评测能力', icon: '✦' },
+};
 
 const api: ApiClient = async <T,>(url: string, init?: RequestInit): Promise<T> => {
   const response = await fetch(url, { ...init, headers: { 'content-type': 'application/json', ...init?.headers } });
@@ -80,9 +86,27 @@ export function App() {
   };
   const selectedDataset = datasets.find((dataset) => dataset.id === selectedDatasetId);
 
-  return <main className="shell"><header><div><p className="eyebrow">DOUPAO EVALUATION</p><h1>移动智能体评测台</h1><p>以评测计划组织执行、轨迹与整体报告。</p></div><span className="badge">● {runtimeLabel}</span></header>
-    <nav className="top-nav" aria-label="评测台导航"><button className={page === 'plans' ? 'active' : ''} onClick={() => setPage('plans')}>评测计划</button><button className={page === 'runs' ? 'active' : ''} onClick={() => setPage('runs')}>执行记录</button><button className={page === 'datasets' ? 'active' : ''} onClick={() => setPage('datasets')}>评测集</button><button className={page === 'judge' ? 'active' : ''} onClick={() => setPage('judge')}>Judge</button></nav>
-    {error && <div className="error">{error}</div>}{loading ? <div className="panel empty"><p>加载中…</p></div> : page === 'plans' ? <PlanConsole api={api} devices={devices} datasets={datasets} plans={plans} selectedPlanId={selectedPlanId} judgeConfigured={judgeConfigured} onSelect={setSelectedPlanId} onPlansChanged={reloadPlans} onRunStarted={onRunStarted}/> : page === 'runs' ? <RunConsole api={api} runs={runs} selectedRun={selectedRun} onSelect={setSelectedRunId} onRunUpdated={updateRun}/> : page === 'judge' ? <JudgeSettings api={api} onConfigured={setJudgeConfigured}/> : <section className="dataset-workspace"><article className="panel"><div className="section-head"><div><h2>评测集管理</h2><p>维护样本、断言与 Judge 标准，不在此发起执行</p></div></div><label>当前评测集<select value={selectedDatasetId} onChange={(event) => setSelectedDatasetId(event.target.value)}>{datasets.map((dataset) => <option key={dataset.id} value={dataset.id}>{dataset.name}</option>)}</select></label><DatasetManager datasets={datasets} selectedId={selectedDatasetId} onChanged={reloadDatasets}/>{selectedDataset && <div className="dataset-overview"><strong>{selectedDataset.name}</strong><p>{selectedDataset.description}</p>{selectedDataset.samples.map((sample) => <div className="sample readonly" key={sample.id}><span><strong>{sample.name ?? sample.id}</strong><small>{sample.instruction}</small></span>{sample.judge?.enabled && <em>Judge</em>}</div>)}</div>}</article></section>}
+  return <main className="shell">
+    <header className="app-topbar">
+      <div className="brand"><span className="brand-mark">D</span><strong>豆泡评测</strong></div>
+      <div className="workspace-switcher"><small>工作区</small><strong>移动智能体评测台</strong><span>⌄</span></div>
+      <span className="badge">● {runtimeLabel}</span>
+    </header>
+    <div className="app-layout">
+      <aside className="app-sidebar">
+        <p className="sidebar-label">工作区</p>
+        <nav className="top-nav" aria-label="评测台导航">
+          {(Object.keys(pageMeta) as Page[]).map((item) => <button key={item} className={page === item ? 'active' : ''} onClick={() => setPage(item)}><span aria-hidden="true">{pageMeta[item].icon}</span>{pageMeta[item].label}</button>)}
+        </nav>
+        <div className="sidebar-footer"><span>DOUPAO</span><small>Evaluation Console</small></div>
+      </aside>
+      <section className="workspace-stage">
+        <div className="workspace-bar"><div><span>工作区&nbsp; / &nbsp;</span><strong>{pageMeta[page].label}</strong></div><p>{pageMeta[page].description}</p></div>
+        <div className="workspace-content">
+          {error && <div className="error">{error}</div>}{loading ? <div className="panel empty"><p>加载中…</p></div> : page === 'plans' ? <PlanConsole api={api} devices={devices} datasets={datasets} plans={plans} selectedPlanId={selectedPlanId} judgeConfigured={judgeConfigured} onSelect={setSelectedPlanId} onPlansChanged={reloadPlans} onRunStarted={onRunStarted}/> : page === 'runs' ? <RunConsole api={api} runs={runs} selectedRun={selectedRun} onSelect={setSelectedRunId} onRunUpdated={updateRun}/> : page === 'judge' ? <JudgeSettings api={api} onConfigured={setJudgeConfigured}/> : <section className="dataset-workspace"><article className="panel"><div className="section-head"><div><h2>评测集管理</h2><p>维护样本、断言与 Judge 标准，不在此发起执行</p></div></div><label>当前评测集<select value={selectedDatasetId} onChange={(event) => setSelectedDatasetId(event.target.value)}>{datasets.map((dataset) => <option key={dataset.id} value={dataset.id}>{dataset.name}</option>)}</select></label><DatasetManager datasets={datasets} selectedId={selectedDatasetId} onChanged={reloadDatasets}/>{selectedDataset && <div className="dataset-overview"><strong>{selectedDataset.name}</strong><p>{selectedDataset.description}</p>{selectedDataset.samples.map((sample) => <div className="sample readonly" key={sample.id}><span><strong>{sample.name ?? sample.id}</strong><small>{sample.instruction}</small></span>{sample.judge?.enabled && <em>Judge</em>}</div>)}</div>}</article></section>}
+        </div>
+      </section>
+    </div>
   </main>;
 }
 
