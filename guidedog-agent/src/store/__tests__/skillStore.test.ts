@@ -336,6 +336,7 @@ describe('skillStore', () => {
       'bilibili-one-click-triple',
       'jd-cart-delete',
       'netease-cloud-music-search',
+      '京东页面视觉观察',
     ]);
     expect(await getSkillBody('beta')).toBe('body-beta');
   });
@@ -352,6 +353,7 @@ describe('skillStore', () => {
       'good',
       'jd-cart-delete',
       'netease-cloud-music-search',
+      '京东页面视觉观察',
     ]);
   });
 
@@ -364,9 +366,14 @@ describe('skillStore', () => {
       'jd-cart-delete',
       'netease-cloud-music-search',
       'scroll-list-search',
+      '京东页面视觉观察',
     ]);
     expect(await getSkillBody('scroll-list-search')).toContain('## 操作流程');
-    expect(await getSkillBody('netease-cloud-music-search')).toContain('## 返回键约束');
+    const neteaseSearch = await getSkillBody('netease-cloud-music-search');
+    expect(neteaseSearch).toContain('## 返回键约束');
+    expect(neteaseSearch).toContain('ui_fill 的 ref 模式');
+    expect(neteaseSearch).toContain('才使用 focused 模式');
+    expect(neteaseSearch).not.toContain('输入框语义明确，直接调用 ui_fill');
     expect(await getSkillBody('bilibili-one-click-triple')).toBe(
       '在哔哩哔哩视频页执行“一键三连”时，对点赞图标中心调用 ui_long_press 的 coordinate 模式，使用最新截图的 observationId 和 0～1000 归一化坐标，并设置 durationMs=3000。',
     );
@@ -375,9 +382,9 @@ describe('skillStore', () => {
     expect(jdCartDelete).toContain('不得写死坐标');
     expect(getSkills().every((skill) => skill.builtIn)).toBe(true);
 
-    // The index now exists with both records — reloading must not duplicate either.
+    // The index now exists — reloading must not duplicate bundled records.
     await loadSkills({ io });
-    expect(getSkills()).toHaveLength(4);
+    expect(getSkills()).toHaveLength(5);
   });
 
   it('allows bundled experiences to be edited, renamed and deleted', async () => {
@@ -421,6 +428,7 @@ describe('skillStore', () => {
       'bilibili-one-click-triple',
       'jd-cart-delete',
       'netease-cloud-music-search',
+      '京东页面视觉观察',
     ]);
 
     const netease = getSkills().find((skill) => skill.name === 'netease-cloud-music-search');
@@ -433,6 +441,7 @@ describe('skillStore', () => {
       'bilibili-one-click-triple',
       'jd-cart-delete',
       'my-netease-search',
+      '京东页面视觉观察',
     ]);
 
     expect(deleteSkill(netease!.id).ok).toBe(true);
@@ -443,6 +452,7 @@ describe('skillStore', () => {
       'alpha',
       'bilibili-one-click-triple',
       'jd-cart-delete',
+      '京东页面视觉观察',
     ]);
   });
 

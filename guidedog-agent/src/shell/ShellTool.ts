@@ -9,7 +9,7 @@ export const SHELL_MAX_COMMAND_LENGTH = 1000;
 export const SHELL_EXECUTE_TOOL: Tool = {
   name: SHELL_EXECUTE_TOOL_NAME,
   description: [
-    '运行 Shell 命令。可由确定性命令完成的任务，优先使用本工具而非 UI 模拟。',
+    '执行受支持的 Shell 命令或 Android 宿主子命令，并返回退出状态、标准输出、耗时及超时状态。',
     '',
     '常用命令：',
     '- 环境：`date` 查时间；`uname` 查系统信息；`env` 查环境变量；`ps` 查进程；`du` 统计目录大小。',
@@ -28,7 +28,7 @@ export const SHELL_EXECUTE_TOOL: Tool = {
     '- `android-communicate dial --number <号码>`：打开拨号页，不拨出。',
     '- `android-communicate email --to <地址> [--subject <主题>] [--body <内容>]`：打开并预填邮件，不发送。',
     '- `android-alarm schedule <HH:MM> [--label <备注>]`：请求在系统时钟中直接创建闹钟；部分系统可能打开预填编辑页，需继续确认。`timer <秒数> [--label <备注>]` 请求设置计时器；`open` 仅打开已有闹钟列表，不创建或验证闹钟。',
-    '- `android-map search --query <地点>`、`show --latitude <纬度> --longitude <经度> [--label <标签>]`：按关键词搜地点或在地图显示坐标。',
+    '- `android-map` 是向地图 App 发起操作的指令：`android-map search --query <地点或关键词>` 传入查询词并请求搜索；`android-map show --latitude <纬度> --longitude <经度> [--label <标签>]` 请求展示指定坐标及可选标签。返回值只表示打开请求是否被系统接受，不返回页面内容，也不证明目标页面已加载或操作已达到预期。执行后，应自行观察地图页面，确认实际操作结果，再按用户目标继续操作并读取所需信息。',
     '- `android-open <URI>`：调用能处理该 URI 的系统应用打开网页、电话、地图、应用商店等。',
     '- `android-calendar insert ...`：打开并预填日历事件，用户确认后才保存。',
     '- `android-settings list|open <target>`：列出或打开指定系统设置页。',

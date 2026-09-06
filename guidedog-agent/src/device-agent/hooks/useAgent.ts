@@ -10,7 +10,6 @@ import { AgentLoop } from '../agent/AgentLoop';
  * const { isRunning, history, execute, stop } = useAgent({
  *   provider: new GemmaProvider({ model: GEMMA4_E4B }),
  *   maxSteps: 50,
- *   settleMs: 500,
  *   onAction: (action) => console.log('Action:', action),
  *   onComplete: (result) => console.log('Done:', result),
  * });

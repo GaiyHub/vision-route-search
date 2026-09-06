@@ -7,6 +7,8 @@ const mockShowRiskConfirmOverlay = jest.fn<
   [string, string, string?]
 >(() => Promise.resolve());
 const mockCancelRiskConfirmOverlay = jest.fn(() => Promise.resolve());
+const mockShowUserActionOverlay = jest.fn<Promise<void>, [string]>(() => Promise.resolve());
+const mockCancelUserActionOverlay = jest.fn(() => Promise.resolve());
 const mockShowTextInputOverlay = jest.fn<Promise<void>, [Record<string, unknown>]>(
   () => Promise.resolve(),
 );
@@ -22,6 +24,8 @@ jest.mock('react-native-accessibility-controller', () => ({
   showRiskConfirmOverlay: (action: string, risk: string, reason?: string) =>
     mockShowRiskConfirmOverlay(action, risk, reason),
   cancelRiskConfirmOverlay: () => mockCancelRiskConfirmOverlay(),
+  showUserActionOverlay: (instruction: string) => mockShowUserActionOverlay(instruction),
+  cancelUserActionOverlay: () => mockCancelUserActionOverlay(),
   showTextInputOverlay: (config: Record<string, unknown>) => mockShowTextInputOverlay(config),
   cancelTextInputOverlay: () => mockCancelTextInputOverlay(),
 }), { virtual: true });
@@ -266,6 +270,21 @@ describe('agentBridge completion gate', () => {
     const requestId = mockShowTextInputOverlay.mock.calls[0][0].requestId as string;
     eventListeners.get('overlay-text-input')?.({ requestId, action: 'submit', text: '123456' });
     await expect(gate).resolves.toMatchObject({ answered: true, answer: '123456' });
+  });
+
+  it.each([
+    ['RISK', () => buildConfirmTool(undefined, true, true).handler({ action: '发送消息', risk: 'high' })],
+    ['ASK_USER', () => buildAskUserTool(undefined, true, true).handler({ question: '请输入验证码' })],
+    ['USER_ACTION', () => buildRequestUserActionTool(undefined, true, true).handler({ instruction: '完成验证码' })],
+  ] as const)('completes evaluation after unanswered %s interaction', async (_interaction, invoke) => {
+    const gate = invoke();
+    await flushPromises();
+    jest.advanceTimersByTime(60_000);
+    await expect(gate).resolves.toMatchObject({
+      ok: true,
+      completed: true,
+      noResponse: true,
+    });
   });
 
   it('shows risk confirmation in the overlay without foregrounding the host app', async () => {

@@ -125,53 +125,56 @@ describe('AgentToolkit per-tool configuration snapshot', () => {
     expect(toolkit.tools.some((tool) => tool.name === 'list_apps')).toBe(true);
   });
 
-  it('routes phone observation through screenshot with its accessibility tree in forced visual mode', async () => {
-    const inspectUi = jest.fn(async () => 'sensitive accessibility tree');
-    const captureScreenshot = jest.fn(async () => ({
-      base64: 'image-bytes',
-      mimeType: 'image/png',
-    }));
-    const toolkit = new AgentToolkit(
-      {
-        delay: async () => undefined,
-        notes: new Map<string, string>(),
-        inspectUi,
-        captureScreenshot,
-      },
-      {
-        forceVisualMode: true,
-        ocrEnhancementEnabled: false,
-        toolFilter: ['list_apps'],
-        toolConfigurationOverrides: {
-          screenshot: { enabled: false },
-          inspect_ui: { enabled: true },
-          find_node: { enabled: true },
-          ui_dump_raw_tree: { enabled: true },
-        },
-      },
-    );
+  it('exposes structure and screenshot observation as independent tools', () => {
+    const names = createToolkit().tools.map((tool) => tool.name);
 
-    const names = toolkit.tools.map((tool) => tool.name);
+    expect(names).toContain('ui_inspect');
     expect(names).toContain('ui_screenshot');
-    expect(names).not.toContain('ui_inspect');
-    expect(names).not.toContain('ui_dump_raw_tree');
-    expect(names).not.toContain('ui_find_node');
-    expect(toolkit.tools.find((tool) => tool.name === 'ui_screenshot')?.description)
-      .toContain('同时返回采集时的 Android 无障碍结构');
+  });
 
-    const result = await toolkit.execute({ name: 'ui_screenshot', arguments: {} });
-    expect(result).toEqual(expect.objectContaining({
-      ok: true,
-      data: {
-        captured: true,
-        observationId: 'shot_1',
-        coordinateSpace: 'normalized_1000',
-        accessibility_tree: 'sensitive accessibility tree',
-      },
-      observationImage: { base64: 'image-bytes', mimeType: 'image/png' },
+  it('exposes generic wait while hiding specialized waits and keeps UI actions free of wait parameters', () => {
+    const tools = createToolkit().tools;
+    const names = tools.map((tool) => tool.name);
+    const actionNames = [
+      'ui_tap',
+      'ui_fill',
+      'ui_long_press',
+      'ui_clear_text',
+      'ui_press_enter',
+      'ui_swipe',
+      'ui_scroll',
+      'ui_scroll_page',
+      'ui_set_checked',
+      'open_app',
+      'ui_global_action',
+    ];
+
+    expect(names).toContain('wait');
+    expect(names).not.toContain('ui_wait_for_node');
+    expect(names).not.toContain('ui_wait_for_change');
+    for (const name of actionNames) {
+      expect(tools.find((tool) => tool.name === name)?.parameters.properties.waitMs)
+        .toBeUndefined();
+    }
+    expect(tools.find((tool) => tool.name === 'ui_inspect')?.parameters.properties)
+      .not.toHaveProperty('waitMs');
+    expect(tools.find((tool) => tool.name === 'ui_screenshot')?.parameters.properties)
+      .not.toHaveProperty('waitMs');
+  });
+
+  it('accepts wait as a top-level tool call', () => {
+    expect(createToolkit().validateCall({ name: 'wait', arguments: { ms: 0 } })).toBeNull();
+  });
+
+  it('rejects stale UI calls that still contain waitMs', async () => {
+    await expect(createToolkit().execute({
+      name: 'ui_scroll',
+      arguments: { direction: 'down', waitMs: 1_000 },
+    })).resolves.toEqual(expect.objectContaining({
+      ok: false,
+      code: 'INVALID_ARGUMENT',
+      error: expect.stringContaining('execute_tools'),
     }));
-    expect(captureScreenshot).toHaveBeenCalledTimes(1);
-    expect(inspectUi).toHaveBeenCalledTimes(1);
   });
 
   it('returns a captured image when the auxiliary accessibility tree stalls', async () => {

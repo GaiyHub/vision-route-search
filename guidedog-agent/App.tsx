@@ -1,13 +1,18 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
+  Animated,
   AppState as NativeAppState,
+  BackHandler,
+  PanResponder,
   StyleSheet,
   Text,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { StatusBar } from 'expo-status-bar';
+import * as Haptics from 'expo-haptics';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { OnboardingNavigator } from './app/onboarding/OnboardingNavigator';
@@ -58,6 +63,7 @@ function syncShotRetention(enabled: boolean): void {
 export default function App() {
   const [appState, setAppState] = useState<AppState>('loading');
   const [tab, setTab] = useState<MainTab>('chat');
+  const [favoritesOpen, setFavoritesOpen] = useState(false);
   const [firstCommand, setFirstCommand] = useState<string | undefined>(undefined);
   const currentModelRef = useRef<'E2B' | 'E4B' | null>(null);
   const currentProviderModeRef = useRef<'cloud' | 'local' | null>(null);
@@ -130,6 +136,19 @@ export default function App() {
     };
   }, []);
 
+  // Treat chat as the root destination: Android back from either secondary
+  // tab returns to the main conversation instead of leaving the app.
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (appState === 'main' && tab !== 'chat') {
+        setTab('chat');
+        return true;
+      }
+      return false;
+    });
+    return () => subscription.remove();
+  }, [appState, tab]);
+
   const handleOnboardingComplete = async (cmd?: string) => {
     await completeOnboarding();
     if (cmd) setFirstCommand(cmd);
@@ -160,11 +179,32 @@ export default function App() {
     <SafeAreaProvider>
       <GestureHandlerRootView style={styles.root}>
         <View style={styles.screen}>
-          {tab === 'chat'     && <ChatScreen initialCommand={firstCommand} />}
+          {tab === 'chat'     && (
+            <ChatScreen
+              initialCommand={firstCommand}
+              favoritesOpen={favoritesOpen}
+              onFavoritesOpenChange={setFavoritesOpen}
+            />
+          )}
           {tab === 'history'  && <HistoryScreen />}
           {tab === 'settings' && <SettingsScreen />}
         </View>
-        <NavigationDrawer tab={tab} onTab={setTab} />
+        <QuickActionGroup
+          visible={tab === 'chat'}
+          favoritesOpen={favoritesOpen}
+          onToggleFavorites={() => setFavoritesOpen((open) => !open)}
+          onOpenHistory={() => {
+            setFavoritesOpen(false);
+            setTab('history');
+          }}
+        />
+        <NavigationDrawer
+          tab={tab}
+          onTab={(nextTab) => {
+            setFavoritesOpen(false);
+            setTab(nextTab);
+          }}
+        />
         <AgentOverlay />
         {/* Browser tools own their UI/session below; the app only mounts the host. */}
         <BrowserHost />
@@ -200,6 +240,162 @@ function VoiceModuleDisabled(): null {
 }
 
 // ---------------------------------------------------------------------------
+// Chat quick actions
+// ---------------------------------------------------------------------------
+
+const QUICK_ACTION_SIZE = 44;
+const QUICK_ACTION_GAP = 2;
+const QUICK_ACTION_HORIZONTAL_PADDING = 2;
+const QUICK_ACTION_VERTICAL_PADDING = 4;
+const QUICK_ACTION_EDGE_GAP = 14;
+const QUICK_ACTION_GROUP_WIDTH = QUICK_ACTION_SIZE + QUICK_ACTION_HORIZONTAL_PADDING * 2;
+const QUICK_ACTION_GROUP_HEIGHT = (
+  QUICK_ACTION_SIZE * 2 + QUICK_ACTION_GAP + QUICK_ACTION_VERTICAL_PADDING * 2
+);
+
+function QuickActionGroup({
+  visible,
+  favoritesOpen,
+  onToggleFavorites,
+  onOpenHistory,
+}: {
+  visible: boolean;
+  favoritesOpen: boolean;
+  onToggleFavorites: () => void;
+  onOpenHistory: () => void;
+}) {
+  const insets = useSafeAreaInsets();
+  const { width, height } = useWindowDimensions();
+  const initialBottom = Math.max(insets.bottom + 124, 140);
+  const initialPosition = useRef({
+    x: Math.max(
+      QUICK_ACTION_EDGE_GAP,
+      width - QUICK_ACTION_GROUP_WIDTH - QUICK_ACTION_EDGE_GAP,
+    ),
+    y: Math.max(
+      insets.top + QUICK_ACTION_EDGE_GAP,
+      height - QUICK_ACTION_GROUP_HEIGHT - initialBottom,
+    ),
+  }).current;
+  const position = useRef(new Animated.ValueXY(initialPosition)).current;
+  const dragScale = useRef(new Animated.Value(1)).current;
+  const positionRef = useRef(initialPosition);
+  const dragStartRef = useRef(initialPosition);
+  const boundsRef = useRef({ minX: 0, maxX: 0, minY: 0, maxY: 0 });
+
+  boundsRef.current = {
+    minX: QUICK_ACTION_EDGE_GAP,
+    maxX: Math.max(
+      QUICK_ACTION_EDGE_GAP,
+      width - QUICK_ACTION_GROUP_WIDTH - QUICK_ACTION_EDGE_GAP,
+    ),
+    minY: insets.top + QUICK_ACTION_EDGE_GAP,
+    maxY: Math.max(
+      insets.top + QUICK_ACTION_EDGE_GAP,
+      height - insets.bottom - QUICK_ACTION_GROUP_HEIGHT - QUICK_ACTION_EDGE_GAP,
+    ),
+  };
+
+  const moveTo = (x: number, y: number) => {
+    const bounds = boundsRef.current;
+    const next = {
+      x: Math.min(bounds.maxX, Math.max(bounds.minX, x)),
+      y: Math.min(bounds.maxY, Math.max(bounds.minY, y)),
+    };
+    positionRef.current = next;
+    position.setValue(next);
+  };
+
+  useEffect(() => {
+    moveTo(positionRef.current.x, positionRef.current.y);
+  }, [height, insets.bottom, insets.top, width]);
+
+  const settleDragFeedback = () => {
+    Animated.spring(dragScale, {
+      toValue: 1,
+      useNativeDriver: true,
+      tension: 180,
+      friction: 12,
+    }).start();
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+  };
+
+  const panResponder = useRef(PanResponder.create({
+    onStartShouldSetPanResponder: () => false,
+    onMoveShouldSetPanResponderCapture: (_event, gesture) => (
+      Math.abs(gesture.dx) > 4 || Math.abs(gesture.dy) > 4
+    ),
+    onPanResponderGrant: () => {
+      dragStartRef.current = { ...positionRef.current };
+      Animated.spring(dragScale, {
+        toValue: 1.045,
+        useNativeDriver: true,
+        tension: 180,
+        friction: 12,
+      }).start();
+      void Haptics.selectionAsync().catch(() => {});
+    },
+    onPanResponderMove: (_event, gesture) => {
+      moveTo(
+        dragStartRef.current.x + gesture.dx,
+        dragStartRef.current.y + gesture.dy,
+      );
+    },
+    onPanResponderRelease: settleDragFeedback,
+    onPanResponderTerminate: settleDragFeedback,
+    onPanResponderTerminationRequest: () => false,
+  })).current;
+
+  if (!visible) return null;
+
+  return (
+    <Animated.View
+      style={[
+        styles.quickActionGroup,
+        {
+          transform: [
+            ...position.getTranslateTransform(),
+            { scale: dragScale },
+          ],
+        },
+      ]}
+      {...panResponder.panHandlers}
+    >
+      <TouchableOpacity
+        style={[
+          styles.quickActionButton,
+          favoritesOpen && styles.quickActionButtonActive,
+        ]}
+        onPress={onToggleFavorites}
+        activeOpacity={0.6}
+        hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
+        accessibilityRole="button"
+        accessibilityLabel={favoritesOpen ? '关闭收藏指令' : '打开收藏指令'}
+        accessibilityHint="轻点打开收藏指令，拖动可调整按钮组位置"
+      >
+        <Ionicons
+          name={favoritesOpen ? 'star' : 'star-outline'}
+          size={28}
+          color={favoritesOpen ? '#059669' : '#6B7280'}
+        />
+      </TouchableOpacity>
+      <View pointerEvents="none" style={styles.quickActionDivider} />
+      <TouchableOpacity
+        style={styles.quickActionButton}
+        onPress={onOpenHistory}
+        activeOpacity={0.6}
+        hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
+        accessibilityRole="button"
+        accessibilityLabel="快速查看历史记录"
+        accessibilityHint="轻点打开历史记录，拖动可调整按钮组位置"
+      >
+        <Ionicons name="time-outline" size={30} color="#6B7280" />
+      </TouchableOpacity>
+    </Animated.View>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Collapsible navigation drawer
 // ---------------------------------------------------------------------------
 
@@ -217,6 +413,15 @@ const TABS: { key: MainTab; label: string }[] = [
 function NavigationDrawer({ tab, onTab }: NavigationDrawerProps) {
   const insets = useSafeAreaInsets();
   const [open, setOpen] = useState(false);
+  const drawerProgress = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.timing(drawerProgress, {
+      toValue: open ? 1 : 0,
+      duration: open ? 240 : 190,
+      useNativeDriver: true,
+    }).start();
+  }, [drawerProgress, open]);
 
   const selectTab = (next: MainTab) => {
     setOpen(false);
@@ -225,16 +430,59 @@ function NavigationDrawer({ tab, onTab }: NavigationDrawerProps) {
 
   return (
     <View pointerEvents="box-none" style={styles.drawerLayer}>
-      {open ? (
+      <Animated.View
+        pointerEvents={open ? 'auto' : 'none'}
+        style={[styles.drawerBackdrop, { opacity: drawerProgress }]}
+      >
         <TouchableOpacity
-          style={styles.drawerBackdrop}
+          style={styles.drawerBackdropHit}
           activeOpacity={1}
           onPress={() => setOpen(false)}
           accessibilityLabel="关闭导航抽屉"
         />
-      ) : null}
+      </Animated.View>
+      <Animated.View
+        pointerEvents={open ? 'auto' : 'none'}
+        accessibilityElementsHidden={!open}
+        importantForAccessibility={open ? 'yes' : 'no-hide-descendants'}
+        style={[
+          styles.drawerMenu,
+          {
+            paddingTop: insets.top + 62,
+            paddingBottom: Math.max(insets.bottom, 16),
+            transform: [{
+              translateX: drawerProgress.interpolate({
+                inputRange: [0, 1],
+                outputRange: [-280, 0],
+              }),
+            }],
+          },
+        ]}
+      >
+        {TABS.map(({ key, label }) => {
+          const active = tab === key;
+          const color = active ? '#059669' : '#6B7280';
+          return (
+            <TouchableOpacity
+              key={key}
+              style={[styles.drawerItem, active && styles.drawerItemActive]}
+              onPress={() => selectTab(key)}
+              activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityState={{ selected: active }}
+            >
+              <View style={styles.drawerItemIcon}>
+                <TabIcon tab={key} color={color} />
+              </View>
+              <Text style={[styles.drawerItemLabel, active && styles.drawerItemLabelActive]}>
+                {label}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </Animated.View>
       <TouchableOpacity
-        style={[styles.drawerButton, { top: insets.top + 7 }]}
+        style={[styles.drawerButton, { top: insets.top + 14 }]}
         onPress={() => setOpen((current) => !current)}
         activeOpacity={0.72}
         accessibilityRole="button"
@@ -243,31 +491,6 @@ function NavigationDrawer({ tab, onTab }: NavigationDrawerProps) {
       >
         <Ionicons name="menu-outline" size={26} color="#374151" />
       </TouchableOpacity>
-      {open ? (
-        <View style={[styles.drawerMenu, { top: insets.top + 54 }]}>
-          {TABS.map(({ key, label }) => {
-            const active = tab === key;
-            const color = active ? '#059669' : '#6B7280';
-            return (
-              <TouchableOpacity
-                key={key}
-                style={[styles.drawerItem, active && styles.drawerItemActive]}
-                onPress={() => selectTab(key)}
-                activeOpacity={0.7}
-                accessibilityRole="button"
-                accessibilityState={{ selected: active }}
-              >
-                <View style={styles.drawerItemIcon}>
-                  <TabIcon tab={key} color={color} />
-                </View>
-                <Text style={[styles.drawerItemLabel, active && styles.drawerItemLabelActive]}>
-                  {label}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
-      ) : null}
     </View>
   );
 }
@@ -333,6 +556,42 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
   },
+  quickActionGroup: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    zIndex: 80,
+    width: QUICK_ACTION_GROUP_WIDTH,
+    height: QUICK_ACTION_GROUP_HEIGHT,
+    paddingHorizontal: QUICK_ACTION_HORIZONTAL_PADDING,
+    paddingVertical: QUICK_ACTION_VERTICAL_PADDING,
+    gap: QUICK_ACTION_GAP,
+    borderRadius: QUICK_ACTION_GROUP_WIDTH / 2,
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#6B7280',
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.24,
+    shadowRadius: 12,
+    elevation: 9,
+  },
+  quickActionButton: {
+    width: QUICK_ACTION_SIZE,
+    height: QUICK_ACTION_SIZE,
+    borderRadius: QUICK_ACTION_SIZE / 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  quickActionDivider: {
+    position: 'absolute',
+    top: QUICK_ACTION_VERTICAL_PADDING + QUICK_ACTION_SIZE + QUICK_ACTION_GAP / 2,
+    left: (QUICK_ACTION_GROUP_WIDTH - 24) / 2,
+    width: 24,
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: '#E5E7EB',
+  },
+  quickActionButtonActive: {
+    backgroundColor: '#E7F8EF',
+  },
 
   drawerLayer: {
     ...StyleSheet.absoluteFillObject,
@@ -341,7 +600,10 @@ const styles = StyleSheet.create({
   },
   drawerBackdrop: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(17,24,39,0.08)',
+    backgroundColor: 'rgba(17,24,39,0.24)',
+  },
+  drawerBackdropHit: {
+    flex: 1,
   },
   drawerButton: {
     position: 'absolute',
@@ -351,23 +613,23 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.96)',
   },
   drawerMenu: {
     position: 'absolute',
-    left: 12,
-    width: 188,
-    padding: 8,
-    borderRadius: 16,
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 280,
+    paddingHorizontal: 16,
     backgroundColor: '#FFFFFF',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(0,0,0,0.08)',
+    borderRightWidth: StyleSheet.hairlineWidth,
+    borderRightColor: 'rgba(0,0,0,0.1)',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.14,
-    shadowRadius: 18,
-    elevation: 14,
-    gap: 4,
+    shadowOffset: { width: 8, height: 0 },
+    shadowOpacity: 0.16,
+    shadowRadius: 20,
+    elevation: 18,
+    gap: 6,
   },
   drawerItem: {
     minHeight: 46,

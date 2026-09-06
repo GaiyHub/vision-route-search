@@ -72,6 +72,12 @@ class ShellRuntimeInstrumentedTest {
         assertTrue(help.output.contains("android-calendar"))
         assertTrue(help.output.contains("android-share"))
 
+        val mapHelp = ShellRuntime.execute(context, "android-map --help", 5_000, "sandbox", false)
+        assertTrue(mapHelp.error ?: mapHelp.output, mapHelp.ok)
+        assertTrue(mapHelp.output.contains("whether Android accepted the launch request"))
+        assertTrue(mapHelp.output.contains("nearby ranking, routes, travel modes, or ETA"))
+        assertFalse(mapHelp.output.contains("instead of estimating it"))
+
         val settings = ShellRuntime.execute(
             context,
             "android-settings list",

@@ -41,7 +41,6 @@ describe('AgentLoop prompt-safe thinking history', () => {
     const loop = new AgentLoop({
       provider,
       maxSteps: 3,
-      settleMs: 0,
       delayFn: async () => {},
       onThinking: (content) => observedThinking.push(content),
       onCacheDiagnostic: (event) => cacheDiagnostics.push(event),

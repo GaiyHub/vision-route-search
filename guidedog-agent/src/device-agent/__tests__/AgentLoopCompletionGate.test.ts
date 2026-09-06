@@ -73,7 +73,6 @@ describe('completion confirmation gate (task_complete path)', () => {
     const loop = new AgentLoop({
       provider,
       maxSteps: 5,
-      settleMs: 0,
       completionGate: gate,
     });
     const events = await collectEvents(loop);
@@ -95,7 +94,6 @@ describe('completion confirmation gate (task_complete path)', () => {
     const loop = new AgentLoop({
       provider,
       maxSteps: 5,
-      settleMs: 0,
       completionGate: gate,
     });
     const events = await collectEvents(loop);
@@ -126,7 +124,6 @@ describe('completion confirmation gate (task_complete path)', () => {
     const loop = new AgentLoop({
       provider,
       maxSteps: 3,
-      settleMs: 0,
       completionGate: gate,
       onMaxStepsRaised,
     });
@@ -148,7 +145,7 @@ describe('completion confirmation gate (task_complete path)', () => {
 
   test('no gate wired → behavior unchanged (immediate complete)', async () => {
     const { provider } = makeProvider([taskComplete('已完成')]);
-    const loop = new AgentLoop({ provider, maxSteps: 5, settleMs: 0 });
+    const loop = new AgentLoop({ provider, maxSteps: 5 });
     const events = await collectEvents(loop);
     expect(events.map((e) => e.type)).toEqual(['complete']);
   });
@@ -161,7 +158,6 @@ describe('completion confirmation gate (task_complete path)', () => {
     const loop = new AgentLoop({
       provider,
       maxSteps: 5,
-      settleMs: 0,
       completionGate: gate,
     });
     const events = await collectEvents(loop);
@@ -176,7 +172,6 @@ describe('completion confirmation gate (task_complete path)', () => {
     const loop = new AgentLoop({
       provider,
       maxSteps: 5,
-      settleMs: 0,
       completionGate: gate,
     });
     const events = await collectEvents(loop);
@@ -192,7 +187,6 @@ describe('step-ceiling confirmation gate (maxSteps exhausted)', () => {
     const loop = new AgentLoop({
       provider,
       maxSteps: 2,
-      settleMs: 0,
       completionGate: gate,
     });
     const events = await collectEvents(loop);
@@ -217,7 +211,6 @@ describe('step-ceiling confirmation gate (maxSteps exhausted)', () => {
     const loop = new AgentLoop({
       provider,
       maxSteps: 2,
-      settleMs: 0,
       completionGate: gate,
       onMaxStepsRaised,
     });
@@ -238,7 +231,7 @@ describe('step-ceiling confirmation gate (maxSteps exhausted)', () => {
 
   test('no gate wired → max_steps_reached end preserved', async () => {
     const { provider } = makeProvider(['', '']);
-    const loop = new AgentLoop({ provider, maxSteps: 2, settleMs: 0 });
+    const loop = new AgentLoop({ provider, maxSteps: 2 });
     const events = await collectEvents(loop);
     expect(events.map((e) => e.type)).toEqual([
       'observation',
@@ -255,7 +248,6 @@ describe('completion confirmation gate (plain-text reply path)', () => {
     const loop = new AgentLoop({
       provider,
       maxSteps: 5,
-      settleMs: 0,
       completionGate: gate,
     });
     const events = await collectEvents(loop);
@@ -277,7 +269,6 @@ describe('completion confirmation gate (plain-text reply path)', () => {
     const loop = new AgentLoop({
       provider,
       maxSteps: 5,
-      settleMs: 0,
       completionGate: gate,
     });
     const events = await collectEvents(loop);
@@ -297,7 +288,6 @@ describe('completion confirmation gate (plain-text reply path)', () => {
     const loop = new AgentLoop({
       provider,
       maxSteps: 2,
-      settleMs: 0,
       completionGate: gate,
     });
     const events = await collectEvents(loop);
@@ -319,7 +309,7 @@ describe('message-array conversation structure (OpenAI protocol)', () => {
 
   test('first turn: static system is followed by an unlabeled ordinary user turn', async () => {
     const { provider, messagesList } = makeProvider([taskComplete('已完成')]);
-    const loop = new AgentLoop({ provider, maxSteps: 5, settleMs: 0 });
+    const loop = new AgentLoop({ provider, maxSteps: 5 });
     await collectEvents(loop, '打开设置');
     const msgs = messagesList[0];
     expect(msgs.length).toBe(3);
@@ -339,7 +329,6 @@ describe('message-array conversation structure (OpenAI protocol)', () => {
     const loop = new AgentLoop({
       provider,
       maxSteps: 5,
-      settleMs: 0,
       conversationHistory: [
         { id: 'u1', role: 'user', content: '帮我查杭州天气' },
         { id: 'a1', role: 'assistant', content: '今天晴，25℃' },
@@ -361,7 +350,7 @@ describe('message-array conversation structure (OpenAI protocol)', () => {
 
   test('history rounds alternate assistant/user and merge the latest user turn', async () => {
     const { provider, messagesList } = makeProvider([openApp, taskComplete('已完成')]);
-    const loop = new AgentLoop({ provider, maxSteps: 5, settleMs: 0 });
+    const loop = new AgentLoop({ provider, maxSteps: 5 });
     await collectEvents(loop);
     const msgs = messagesList[1];
     // system, user(runtime context), user(task), assistant(action), user(result)
@@ -382,7 +371,6 @@ describe('message-array conversation structure (OpenAI protocol)', () => {
     const loop = new AgentLoop({
       provider,
       maxSteps: 5,
-      settleMs: 0,
       contextCompressionEnabled: false,
     });
     await collectEvents(loop);
@@ -405,7 +393,6 @@ describe('message-array conversation structure (OpenAI protocol)', () => {
     const loop = new AgentLoop({
       provider,
       maxSteps: 5,
-      settleMs: 0,
       getUserMessages: () => pending.splice(0),
     });
     await collectEvents(loop);
@@ -420,7 +407,6 @@ describe('message-array conversation structure (OpenAI protocol)', () => {
     const loop = new AgentLoop({
       provider,
       maxSteps: 5,
-      settleMs: 0,
       todoList: new TodoList(),
     });
     await collectEvents(loop);
@@ -434,7 +420,7 @@ describe('message-array conversation structure (OpenAI protocol)', () => {
   test('cache breakpoints mark the stable prefix only', async () => {
     const openApp = `{"name": "open_app", "arguments": {"packageName": "com.example"}}`;
     const { provider, messagesList } = makeProvider([openApp, taskComplete('已完成')]);
-    const loop = new AgentLoop({ provider, maxSteps: 5, settleMs: 0 });
+    const loop = new AgentLoop({ provider, maxSteps: 5 });
     await collectEvents(loop);
     const msgs = messagesList[1];
     // system is always cached; the last stable history assistant message is
@@ -469,7 +455,6 @@ describe('message-array conversation structure (OpenAI protocol)', () => {
       contextWindowTokens: 8_192,
       todoList: todo,
       toolFilter: ['task_complete'],
-      settleMs: 0,
     });
     const buildMessages = (loop as unknown as {
       buildMessages: (
@@ -535,7 +520,6 @@ describe('message-array conversation structure (OpenAI protocol)', () => {
       contextWindowTokens: 8_192,
       conversationHistory,
       toolFilter: ['task_complete'],
-      settleMs: 0,
     });
 
     const running = collectEvents(loop);
@@ -743,7 +727,6 @@ describe('thinking-mode fragment guard (no completion verdict on residue)', () =
     const loop = new AgentLoop({
       provider,
       maxSteps: 5,
-      settleMs: 0,
       completionGate: gate,
     });
     const events = await collectEvents(loop);
@@ -765,7 +748,6 @@ describe('thinking-mode fragment guard (no completion verdict on residue)', () =
     const loop = new AgentLoop({
       provider,
       maxSteps: 5,
-      settleMs: 0,
       completionGate: gate,
     });
     const events = await collectEvents(loop);
@@ -783,7 +765,6 @@ describe('thinking-mode fragment guard (no completion verdict on residue)', () =
     const loop = new AgentLoop({
       provider,
       maxSteps: 5,
-      settleMs: 0,
       completionGate: gate,
     });
     const events = await collectEvents(loop);
@@ -801,7 +782,6 @@ describe('LLM inference timeout (hung provider)', () => {
     const loop = new AgentLoop({
       provider,
       maxSteps: 3,
-      settleMs: 0,
       requestTimeoutMs: 50,
     });
     const events = await collectEvents(loop);
@@ -816,7 +796,6 @@ describe('LLM inference timeout (hung provider)', () => {
     const loop = new AgentLoop({
       provider,
       maxSteps: 3,
-      settleMs: 0,
       requestTimeoutMs: 5000,
     });
     const events: AgentEvent[] = [];

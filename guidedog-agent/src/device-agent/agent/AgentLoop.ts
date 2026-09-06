@@ -62,6 +62,7 @@ export const USER_DECISION_TOOLS = new Set<string>([
 ]);
 import {
   AgentToolkit,
+  MAX_TOOL_SEQUENCE_DURATION_MS,
 } from './AgentToolkit';
 import { PhoneObservation } from './PhoneObservation';
 import { DEFAULT_AGENT_STEPS, normalizeAgentSteps } from './AgentLimits';
@@ -90,7 +91,6 @@ function modelTraceImage(image: ScreenshotImage): ModelTraceEvent['request']['im
 export class AgentLoop {
   private options: AgentOptions & {
     maxSteps: number;
-    settleMs: number;
     useVision: boolean;
     retryOnError: number;
     systemPrompt: string;
@@ -120,16 +120,13 @@ export class AgentLoop {
   private circuitBreaker: ToolLoopCircuitBreaker;
   /** Global safety fuse above the per-tool breakers. */
   private consecutiveCircuitBlocks = 0;
+  /** Deferred terminal event raised by a blocked child inside execute_tools. */
+  private pendingSequenceCircuitFailure: string | null = null;
   /** All model-facing history reduction is owned by this single component. */
   private contextCompression: ContextCompressionManager;
-  /** Screenshot for the current observed screen state. It is attached to one
-   * successful inference only; durable facts continue as visual_memory. */
-  private latestObservationScreenshotPath: ScreenshotImage | null = null;
-  private latestObservationImageConsumed = false;
-  /** Host-owned id of the screenshot currently attached to vision inference. */
-  private latestObservationId: string | null = null;
-  /** Avoid asking the model to restate facts when a read-only turn reuses the same image. */
-  private visualMemoryCapturedObservationId: string | null = null;
+  /** Current model-facing UI observation. Full structure and image are
+   * transient; durable facts continue as visual_memory. */
+  private currentModelObservation: CurrentModelObservation | null = null;
   private visualObservationSequence = 0;
   /** Ordinary user turn produced by a completion/max-step dialogue. */
   private pendingUserMessage: string | null = null;
@@ -137,12 +134,6 @@ export class AgentLoop {
   private pendingRuntimeGuidance: string | null = null;
   /** Previous cacheable model prefix, retained only for prefix-stability diagnostics. */
   private previousCacheablePrefix: string | null = null;
-  /** Full UI structure is deliberately not durable model history. The raw
-   * AgentEvent remains intact for UI/log consumers, while this pointer exposes
-   * the newest structure only to the immediately following successful model
-   * decision (and all retries of that same request). */
-  private pendingUiObservation: PendingUiObservation | null = null;
-
   private _running = false;
   private _step = 0;
   private decisionRoundSequence = 0;
@@ -165,7 +156,6 @@ export class AgentLoop {
   constructor(options: AgentOptions) {
     const merged = {
       maxSteps: DEFAULT_AGENT_STEPS,
-      settleMs: 500,
       useVision: false,
       retryOnError: 0,
       systemPrompt: '',
@@ -182,7 +172,6 @@ export class AgentLoop {
     this.options = {
       ...merged,
       maxSteps: normalizeAgentSteps(merged.maxSteps),
-      settleMs: merged.settleMs ?? 500,
       retryOnError: merged.retryOnError ?? 0,
       timeoutMs: merged.timeoutMs ?? 0,
       consecutiveCircuitBreakerLimit: normalizeConsecutiveCircuitBlockLimit(
@@ -204,14 +193,15 @@ export class AgentLoop {
         cancelInspectUi: () => phoneObservation.cancelInspectUi(),
         captureScreenshot: () => phoneObservation.screenshot(),
         onTimingDiagnostic: (event) => this.emitTimingDiagnostic(event),
+        executeToolSequence: (calls, stopOnError) =>
+          this.executeToolSequence(calls, stopOnError),
       },
       {
         toolFilter: options.toolFilter,
         extraTools: options.extraTools,
         toolConfigurationOverrides: options.toolConfigurationOverrides,
-        forceVisualMode: options.forceVisualMode,
         screenshotNodeMarkersEnabled: options.screenshotNodeMarkersEnabled,
-        screenshotDownscalingEnabled: options.screenshotDownscalingEnabled,
+        screenshotScale: options.screenshotScale,
         ocrEnhancementEnabled: options.ocrEnhancementEnabled,
         nodeTargetGestureTapEnabled: options.nodeTargetGestureTapEnabled,
         toolRiskGate: options.toolRiskGate,
@@ -292,15 +282,12 @@ export class AgentLoop {
     this.decisionRoundSequence = 0;
     this.toolCallSequence = 0;
     this.userMessageSequence = 0;
-    this.latestObservationScreenshotPath = null;
-    this.latestObservationImageConsumed = false;
-    this.latestObservationId = null;
-    this.visualMemoryCapturedObservationId = null;
+    this.currentModelObservation = null;
     this.visualObservationSequence = 0;
-    this.pendingUiObservation = null;
     this.toolkit.notes.clear();
     this.circuitBreaker.reset();
     this.consecutiveCircuitBlocks = 0;
+    this.pendingSequenceCircuitFailure = null;
     this.contextCompression.reset();
     this.toolResultArtifacts.beginSession();
     const history: AgentEvent[] = [];
@@ -421,9 +408,12 @@ export class AgentLoop {
         const inferenceStartedAt = Date.now();
         response = await this.inferWithRetry(messages, structuredMessages, round);
         // inferWithRetry reuses the exact same built messages for all attempts.
-        // Clear only after one attempt succeeds so a transient tree survives
+        // Clear structure only after one attempt succeeds so it survives
         // transport/provider retries but never leaks into a later decision.
-        this.pendingUiObservation = null;
+        const inferredObservation = this.currentModelObservation as CurrentModelObservation | null;
+        if (inferredObservation) {
+          inferredObservation.structure = undefined;
+        }
         this.emitTimingDiagnostic({
           stage: 'inference_total',
           round,
@@ -445,19 +435,23 @@ export class AgentLoop {
         .trim();
       const extractedVisualMemory = extractVisualMemory(rawResponseText);
       const responseText = extractedVisualMemory.remainingText;
+      const consumedObservation = this.currentModelObservation as CurrentModelObservation | null;
       if (
         extractedVisualMemory.content &&
-        this.latestObservationScreenshotPath &&
-        this.latestObservationId
+        consumedObservation?.image
       ) {
         const memoryEvent: AgentEvent = {
           type: 'visual_memory',
-          observationId: this.latestObservationId,
+          observationId: consumedObservation.id,
           content: extractedVisualMemory.content,
         };
         history.push(memoryEvent);
         yield memoryEvent;
-        this.visualMemoryCapturedObservationId = this.latestObservationId;
+      }
+      // Both structure and image are single-decision inputs. Any durable visual
+      // facts have now been extracted into history, so release the envelope.
+      if (this.currentModelObservation === consumedObservation) {
+        this.currentModelObservation = null;
       }
       const structuredToolCalls = response.content
         .filter((item): item is Extract<ModelContent, { type: 'tool_call' }> => item.type === 'tool_call');
@@ -741,6 +735,7 @@ export class AgentLoop {
           try {
             actionEvent.result = (
               USER_DECISION_TOOLS.has(call.name) ||
+              canonicalToolName(call.name) === 'execute_tools' ||
               this.toolkit.requiresRiskConfirmation(call)
             )
               ? await Promise.race([
@@ -772,57 +767,22 @@ export class AgentLoop {
           ok: normalizeToolResult(actionEvent.result).ok,
         });
 
-        // Preserve sequential tool ordering. UI-changing actions receive only
-        // the configured settle delay; no environment state is sampled.
+        // Preserve sequential tool ordering without inserting a fixed delay.
+        // Calls that depend on a changed UI must obtain fresh evidence in a
+        // later model round or use a tool that owns its readiness contract.
         const actionResult = actionEvent.result;
-        const transientObservation = createPendingUiObservation(
-          call.name,
-          actionEvent.callId ?? 'toolu_legacy',
-          actionResult,
-        );
-        if (transientObservation) this.pendingUiObservation = transientObservation;
-        const observationImage = actionResult && typeof actionResult === 'object'
-          ? (actionResult as { observationImage?: ScreenshotImage }).observationImage
-          : undefined;
-        if (observationImage) {
-          this.latestObservationScreenshotPath = observationImage;
-          this.latestObservationImageConsumed = false;
-          this.visualObservationSequence += 1;
-          this.latestObservationId = observationIdOf(actionResult)
-            ?? `visual_${this.visualObservationSequence}`;
-          this.visualMemoryCapturedObservationId = null;
-        }
-
         const uiEffect = call.argumentParseError
           ? 'none'
           : this.toolkit.resolveUiEffect(call, actionResult);
-        const hasFollowingToolCall = callIndex < toolCalls.length - 1;
-        const needsInterToolSettle =
-          hasFollowingToolCall && uiEffect === 'change' && !observationImage;
-        if (needsInterToolSettle) {
-          // Only serialize a settle delay between calls from the same model
-          // response. After the final call, the next inference already gives
-          // the UI time to settle and no environment state is sampled here, so
-          // an additional fixed delay would be pure latency. Wait tools already
-          // perform their own bounded wait, while tools returning a post-action
-          // image have already produced fresh evidence.
-          const settleStartedAt = Date.now();
-          await this.delay(this.options.settleMs);
-          this.emitTimingDiagnostic({
-            stage: 'settle_wait',
-            round,
-            step: this._step,
-            tool: call.name,
-            requestedMs: this.options.settleMs,
-            durationMs: Date.now() - settleStartedAt,
-          });
+        if (uiEffect === 'change' || uiEffect === 'wait') {
+          this.currentModelObservation = null;
         }
-        if ((uiEffect === 'change' || uiEffect === 'wait') && !observationImage) {
-          this.latestObservationScreenshotPath = null;
-          this.latestObservationImageConsumed = false;
-          this.latestObservationId = null;
-          this.visualMemoryCapturedObservationId = null;
-        }
+
+        this.applyToolResultObservation(
+          call,
+          actionEvent.callId ?? 'toolu_legacy',
+          actionResult,
+        );
 
         const afterObservation = this.captureToolLoopObservation(isBrowserAction);
         const loopRecord = this.circuitBreaker.recordAfter(
@@ -848,6 +808,15 @@ export class AgentLoop {
           actionEvent.callId ?? 'toolu_legacy',
           actionResult,
         );
+        if (canonicalToolName(call.name) === 'execute_tools' && this.pendingSequenceCircuitFailure) {
+          const reason = this.pendingSequenceCircuitFailure;
+          this.pendingSequenceCircuitFailure = null;
+          const failedEvent: AgentEvent = { type: 'failed', reason };
+          history.push(failedEvent);
+          yield failedEvent;
+          this.options.onFailed?.(reason);
+          return;
+        }
       }
 
       if (this.aborted) break;
@@ -1021,18 +990,180 @@ export class AgentLoop {
     ]);
   }
 
+  /** Execute one model-authored serial plan while preserving each atomic
+   * call's existing risk, circuit-breaker and observation semantics. Child
+   * calls are intentionally not written as provider tool-use messages: the
+   * provider emitted only the enclosing execute_tools call. */
+  private async executeToolSequence(calls: ToolCall[], stopOnError: boolean): Promise<unknown> {
+    const preflight = this.toolkit.preflightToolSequence({ calls, stopOnError });
+    if (!preflight.ok) return preflight.failure;
+
+    const startedAt = Date.now();
+    let excludedGateMs = 0;
+    const results: Array<Record<string, unknown>> = [];
+    let stopped = false;
+    for (let index = 0; index < preflight.calls.length; index += 1) {
+      const call = preflight.calls[index];
+      const elapsedMs = Date.now() - startedAt - excludedGateMs;
+      const remainingMs = MAX_TOOL_SEQUENCE_DURATION_MS - elapsedMs;
+      if (remainingMs <= 0) {
+        results.push({
+          index,
+          tool: call.name,
+          status: 'failed',
+          durationMs: 0,
+          result: toolFailure('批量工具调用超过 30 秒总时限', 'TOOL_SEQUENCE_TIMEOUT', {
+            retryable: true,
+          }),
+        });
+        stopped = true;
+        break;
+      }
+
+      const isBrowserAction = isBrowserToolName(call.name);
+      const beforeObservation = this.captureToolLoopObservation(isBrowserAction);
+      const loopCall = this.toolkit.enrichToolCallForCircuitBreaker(call);
+      const loopCheck = this.circuitBreaker.checkBefore(loopCall);
+      const childStartedAt = Date.now();
+      const childCallId = `sequence_${childStartedAt.toString(36)}_${index}`;
+      this.options.onAction?.({ tool: call.name, args: call.arguments, timestamp: childStartedAt });
+
+      let childResult: unknown;
+      if (loopCheck.blocked) {
+        childResult = loopCheck.blocked;
+        this.consecutiveCircuitBlocks += 1;
+        if (loopCheck.event) this.emitCircuitBreakerEvent(loopCheck.event);
+        if (this.consecutiveCircuitBlocks >= this.options.consecutiveCircuitBreakerLimit) {
+          const reason =
+            `批量序列中的工具已连续熔断 ${this.consecutiveCircuitBlocks} 次，达到安全终止阈值 ` +
+            `${this.options.consecutiveCircuitBreakerLimit}，已强制终止执行。`;
+          this.pendingSequenceCircuitFailure = reason;
+          this.emitCircuitBreakerEvent({
+            type: 'terminated',
+            tool: loopCheck.action.canonicalName,
+            family: loopCheck.action.family,
+            fingerprint: loopCheck.event?.fingerprint ?? '',
+            count: this.consecutiveCircuitBlocks,
+            reason: 'CONSECUTIVE_BLOCK_LIMIT',
+          });
+        }
+      } else {
+        this.consecutiveCircuitBlocks = 0;
+        const waitsForUserDecision = USER_DECISION_TOOLS.has(call.name) ||
+          this.toolkit.requiresRiskConfirmation(call);
+        if (waitsForUserDecision) {
+          const gateStartedAt = Date.now();
+          childResult = await Promise.race([
+            this.toolkit.execute(call),
+            this.ensureAbortWaiter(),
+          ]);
+          excludedGateMs += Date.now() - gateStartedAt;
+        } else {
+          childResult = await this.executeOrdinaryTool(call, isBrowserAction, remainingMs);
+        }
+
+        const uiEffect = this.toolkit.resolveUiEffect(call, childResult);
+        if (uiEffect === 'change' || uiEffect === 'wait') {
+          this.currentModelObservation = null;
+        }
+        this.applyToolResultObservation(
+          call,
+          childCallId,
+          childResult,
+        );
+
+        const afterObservation = this.captureToolLoopObservation(isBrowserAction);
+        const loopRecord = this.circuitBreaker.recordAfter(
+          loopCall,
+          childResult,
+          beforeObservation,
+          afterObservation,
+        );
+        if (loopRecord.event) this.emitCircuitBreakerEvent(loopRecord.event);
+      }
+
+      const normalized = normalizeToolResult(childResult);
+      const modelSafeResult = sanitizeToolResultForHistory(
+        childResult,
+        call.name,
+        false,
+        childCallId,
+      );
+      const durationMs = Date.now() - childStartedAt;
+      results.push({
+        index,
+        tool: call.name,
+        status: loopCheck.blocked ? 'blocked' : normalized.ok ? 'completed' : 'failed',
+        durationMs,
+        result: modelSafeResult,
+      });
+      this.emitTimingDiagnostic({
+        stage: 'tool_sequence_child',
+        tool: call.name,
+        index,
+        durationMs,
+        ok: normalized.ok,
+      });
+      if (this.pendingSequenceCircuitFailure || (!normalized.ok && preflight.stopOnError)) {
+        stopped = true;
+        break;
+      }
+    }
+
+    for (let index = results.length; index < preflight.calls.length; index += 1) {
+      results.push({ index, tool: preflight.calls[index].name, status: 'skipped' });
+    }
+    return {
+      completed: results.filter((item) => item.status === 'completed').length,
+      stopped,
+      durationMs: Date.now() - startedAt - excludedGateMs,
+      results,
+    };
+  }
+
+  private applyToolResultObservation(
+    call: ToolCall,
+    callId: string,
+    result: unknown,
+  ): void {
+    const transientObservation = createPendingUiObservation(call.name, callId, result);
+    const observationImage = result && typeof result === 'object'
+      ? (result as { observationImage?: ScreenshotImage }).observationImage
+      : undefined;
+    if (!transientObservation && !observationImage) return;
+    const observationId = transientObservation?.observationId
+      ?? observationIdOf(result)
+      ?? `visual_${(++this.visualObservationSequence).toString(36)}`;
+    this.currentModelObservation = {
+      id: observationId,
+      ...(transientObservation ? { structure: transientObservation } : {}),
+      ...(observationImage ? { image: observationImage } : {}),
+      imageConsumed: false,
+    };
+  }
+
   /** Execute an ordinary tool with one host-owned recovery for a missing
    * runtime permission. Permission UI is intentionally outside the toolkit:
    * the original attempt has fully unwound before the host changes foreground
    * apps, and the exact call is retried once without another model decision. */
-  private async executeOrdinaryTool(call: ToolCall, isBrowserAction: boolean): Promise<unknown> {
+  private async executeOrdinaryTool(
+    call: ToolCall,
+    isBrowserAction: boolean,
+    maximumTimeoutMs?: number,
+  ): Promise<unknown> {
     const canonicalName = canonicalToolName(call.name);
     const isScreenshot = canonicalName === 'ui_screenshot';
+    const isWait = canonicalName === 'wait';
     const isLocationShell = canonicalName === 'shell_execute';
-    const timeoutMs = isBrowserAction ? 65_000 : isScreenshot ? 15_000 : 10_000;
+    const defaultTimeoutMs = isBrowserAction ? 65_000 : isWait ? 30_000 : isScreenshot ? 15_000 : 10_000;
+    const timeoutMs = maximumTimeoutMs === undefined
+      ? defaultTimeoutMs
+      : Math.max(1, Math.min(defaultTimeoutMs, maximumTimeoutMs));
     const timeoutFailure = () => toolFailure(
       isBrowserAction
         ? '浏览器工具调用超时（65 秒）'
+        : isWait
+          ? '等待工具调用超时（30 秒）'
         : isScreenshot
           ? '截图工具调用超时（15 秒）'
           : '工具调用超时（10 秒）',
@@ -1165,9 +1296,9 @@ export class AgentLoop {
       }
       try {
         if (this.aborted) throw new Error('inference aborted');
-        const attachedImage = this.latestObservationImageConsumed
+        const attachedImage = this.currentModelObservation?.imageConsumed
           ? null
-          : this.latestObservationScreenshotPath;
+          : this.currentModelObservation?.image ?? null;
         const inference = (async () => {
           if (
             this.options.useVision &&
@@ -1246,7 +1377,9 @@ export class AgentLoop {
         // A screenshot is an observation consumed by one successful model
         // decision, not a durable history attachment. The same response may
         // emit visual_memory, which remains available as compact text.
-        if (attachedImage) this.latestObservationImageConsumed = true;
+        if (attachedImage && this.currentModelObservation?.image === attachedImage) {
+          this.currentModelObservation.imageConsumed = true;
+        }
         return result;
       } catch (err) {
         if (this.aborted) throw new Error('inference aborted');
@@ -1341,7 +1474,7 @@ export class AgentLoop {
         : '';
     const fallbackDecisionProtocol = !baseSystemPrompt
       ? '请根据任务进度和工具结果决定下一步：\n' +
-        '  - 需要操作：调用对应工具（多个动作可一次返回，按执行顺序）；\n' +
+        '  - 需要操作：调用对应工具；2～8 个无需读取中间结果的动作可使用 execute_tools 串行编排；\n' +
         '  - 任务完成：调用 task_complete；\n' +
         '  - 无法继续或被阻塞：调用 task_failed；\n' +
         '  - 缺少继续所需信息或目标不明确：调用 ask_user；\n' +
@@ -1387,7 +1520,9 @@ export class AgentLoop {
       this.buildCurrentUserRound(task),
       ...this.buildHistoryRounds(history),
     ];
-    const transientUiObservation = renderPendingUiObservation(this.pendingUiObservation);
+    const transientUiObservation = renderPendingUiObservation(
+      this.currentModelObservation?.structure ?? null,
+    );
     const managed = await this.contextCompression.prepare(rounds, {
       fixedContext: systemContent,
       runtimeContext: runtimeContextBase,
@@ -1491,10 +1626,14 @@ export class AgentLoop {
       previousPrefixRetained: previous === null ? null : cacheablePrefix.startsWith(previous),
       compacted: managed.compacted,
       estimatedTokens: managed.estimatedTokens,
+      estimatedTokensBeforeCompression: managed.estimatedTokensBeforeCompression,
+      estimatedTokensAfterOffload: managed.estimatedTokensAfterOffload,
+      estimatedTokensAfterSummary: managed.estimatedTokensAfterSummary,
+      offloadedResults: managed.offloadedResults,
       thresholdTokens: managed.thresholdTokens,
       imageAttached:
-        this.latestObservationScreenshotPath !== null &&
-        !this.latestObservationImageConsumed,
+        this.currentModelObservation?.image !== undefined &&
+        !this.currentModelObservation.imageConsumed,
     });
     this.previousCacheablePrefix = cacheablePrefix;
 
@@ -1566,7 +1705,7 @@ export class AgentLoop {
     const rounds: ContextHistoryRound[] = [];
     // Images and accessibility output are two representations of the same
     // transient UI state. Reuse the exact uiEffect classification that clears
-    // latestObservationScreenshotPath so their model-facing lifetimes cannot
+    // currentModelObservation so their model-facing lifetimes cannot
     // drift apart: a successful changing/waiting action advances the revision;
     // a failed/no-op action leaves both representations valid.
     const observationRevisionByAction = new Map<
@@ -1768,17 +1907,16 @@ export class AgentLoop {
    * a new image. The block is parsed out of thinking and retained as assistant
    * history, so no second model call or repeated image upload is required. */
   private visualMemoryInstruction(history: AgentEvent[]): string {
+    const observation = this.currentModelObservation;
     if (
-      !this.latestObservationScreenshotPath ||
-      this.latestObservationImageConsumed ||
-      !this.latestObservationId ||
-      this.visualMemoryCapturedObservationId === this.latestObservationId
+      !observation?.image ||
+      observation.imageConsumed
     ) {
       return '';
     }
     const recentMemories = history
       .filter((event): event is Extract<AgentEvent, { type: 'visual_memory' }> =>
-        event.type === 'visual_memory' && event.observationId !== this.latestObservationId,
+        event.type === 'visual_memory' && event.observationId !== observation.id,
       )
       .slice(-2);
     const recentTimeline = recentMemories.length > 0
@@ -1787,10 +1925,10 @@ export class AgentLoop {
           .join('\n') +
         '\n这些历史状态中的 ref、坐标和控件状态均不可复用，也不能视为当前界面。'
       : '';
-    return `[视觉记忆要求] 当前请求附带截图 observation_id=${this.latestObservationId}。` +
+    return `[视觉记忆要求] 当前请求附带截图 observation_id=${observation.id}。` +
       recentTimeline +
       '\n如果图片中存在完成当前对话后续步骤仍需引用的关键信息，请在工具调用前额外输出 ' +
-      `<visual_memory observation_id="${this.latestObservationId}">简短事实</visual_memory>。` +
+      `<visual_memory observation_id="${observation.id}">简短事实</visual_memory>。` +
       '记录当前页面直接显示的任务相关对象、文字、数值或状态；存在近期视觉状态且能够可靠比较时，同时明确记录发生的变化。' +
       '使用“页面显示”或“相较近期状态”表达证据边界，不把变化直接推断为业务成功、真实性、官方状态或用户意图；' +
       '不保存坐标、ref、操作指令或整页描述，控制在 300 字以内。没有需要跨步骤保留的信息时不要输出该块。该块不能替代下一步工具调用。';
@@ -1960,6 +2098,13 @@ interface PendingUiObservation {
   callId: string;
   observationId: string;
   payload: string;
+}
+
+interface CurrentModelObservation {
+  id: string;
+  structure?: PendingUiObservation;
+  image?: ScreenshotImage;
+  imageConsumed: boolean;
 }
 
 function createPendingUiObservation(

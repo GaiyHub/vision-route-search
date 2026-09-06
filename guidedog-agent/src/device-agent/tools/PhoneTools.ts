@@ -8,9 +8,56 @@ import type { Tool } from '../types';
  */
 export const PHONE_TOOLS: Tool[] = [
   {
+    name: 'execute_tools',
+    description:
+      '按声明顺序串行执行 2～8 个可预先确定参数的原子工具。序列应在第一个需要读取中间结果才能确定参数的动作之前结束；可以在末尾加入等待或观察。每个子调用独立校验参数、风险、授权与熔断，默认遇错停止。不得嵌套 execute_tools，不得包含 task_complete、task_failed、ask_user、request_user_action、confirm_action、todo_create 或 todo_update。正例：已知输入框 ref，连续填写、提交、等待并观察：{"calls":[{"name":"ui_fill","arguments":{"mode":"ref","ref":"u12","value":"关键词","_risk":{"level":"low"}}},{"name":"ui_press_enter","arguments":{"ref":"u12","_risk":{"level":"low"}}},{"name":"wait","arguments":{}},{"name":"ui_inspect","arguments":{}}]}。',
+    uiEffect: 'none',
+    parameters: {
+      type: 'object',
+      properties: {
+        calls: {
+          type: 'array',
+          description: '严格按数组顺序执行的原子工具调用，共 2～8 项。',
+          items: {
+            type: 'object',
+            properties: {
+              name: { type: 'string', description: '当前已启用的原子工具名称' },
+              arguments: {
+                type: 'object',
+                description: '完全符合该原子工具 schema 的参数；需要 _risk 的工具必须在这里逐项提供',
+                additionalProperties: true,
+              },
+            },
+            required: ['name', 'arguments'],
+            additionalProperties: false,
+          },
+        },
+        stopOnError: {
+          type: 'boolean',
+          description: '子调用失败后是否停止剩余调用，默认 true。',
+        },
+      },
+      required: ['calls'],
+    },
+    outputSchema: {
+      type: 'object',
+      properties: {
+        completed: { type: 'number', description: '实际完成的子调用数' },
+        stopped: { type: 'boolean', description: '是否在序列结束前停止' },
+        results: {
+          type: 'array',
+          description: '按声明顺序返回的逐项状态与结果',
+          items: { type: 'object', additionalProperties: true },
+        },
+      },
+      required: ['completed', 'stopped', 'results'],
+      additionalProperties: false,
+    },
+  },
+  {
     name: 'ui_inspect',
     description:
-      '轻量读取当前 Android 无障碍结构，不包含屏幕图像。返回可见节点的文字、内容描述、控件状态、边界、短期 ref 和 observationId，适用于读取页面文字、定位标准控件，以及判断 selected、checked、enabled 等结构状态。',
+      '轻量获取当前 Android 页面的基本结构信息，不传输屏幕图像。返回当前可见节点的文字、内容描述、控件状态、边界、短期 ref 和 observationId，可用于了解当前页面内容、识别主要区域、定位具有无障碍语义的可操作目标，以及判断 selected、checked、enabled 等状态。无法提供颜色、图标外观、图片内容、自定义绘制内容或纯视觉文字。',
     uiEffect: 'none',
     parameters: {
       type: 'object',
@@ -123,21 +170,17 @@ export const PHONE_TOOLS: Tool[] = [
   {
     name: 'ui_fill',
     description:
-      '定位输入框并替换其中的文本。支持通过 focused、ref、文本、内容描述或资源 ID 定位；默认直接写入而不弹出输入法，控件拒绝直接写入或提交时会自动聚焦重试。submit=true 时在写入后执行一次 IME 提交。高风险最终提交须先获得授权。',
+      '替换输入框中的文本。ref 模式填写最新观察中明确指定的可编辑节点；focused 模式仅填写当前已聚焦的可编辑节点，不会查找、点击或自动聚焦输入框。只有最新观察或紧邻的输入框点击明确证明焦点已建立时，才使用 focused。ref 控件拒绝直接写入时会尝试点击该节点后重试。submit=true 时在写入后执行一次 IME 提交。高风险最终提交须先获得授权。',
     parameters: {
       type: 'object',
       properties: {
         mode: {
           type: 'string',
           description: '输入框定位方式',
-          enum: ['focused', 'ref', 'text', 'content_description', 'resource_id'],
+          enum: ['ref', 'focused'],
         },
         value: { type: 'string', description: '要写入的文本（替换原内容）' },
-        ref: { type: 'string', description: '最新观察中的输入框短期 ref' },
-        targetText: { type: 'string', description: '按输入框文本、提示文字或内容描述定位' },
-        contentDescription: { type: 'string', description: '按输入框内容描述定位' },
-        resourceId: { type: 'string', description: '按 Android 资源 ID 定位输入框' },
-        matchIndex: { type: 'number', description: '多个语义匹配中的序号，从 0 开始，默认 0' },
+        ref: { type: 'string', description: 'ref 模式必填：最新 ui_inspect 或 ui_screenshot 返回的可编辑节点短期 ref' },
         submit: { type: 'boolean', description: '写入成功后是否执行一次 IME 提交，默认 false' },
       },
       required: ['mode', 'value'],
@@ -306,11 +349,11 @@ export const PHONE_TOOLS: Tool[] = [
   {
     name: 'wait',
     description:
-      '等待手机界面的异步加载或动画完成，最长等待 ms；检测到屏幕文本变化时提前返回。一次等待仍无变化时适合重新观察或更换策略，不适合连续延长等待。',
+      '等待手机界面的窗口根节点摘要持续稳定：比较各窗口根节点的文字、直接子节点数、窗口 ID，以及活动根节点的包名和类名，不遍历子树。每次采样后间隔 200 毫秒，连续 500 毫秒不变时提前返回；发生变化后重新计时。子节点内容变化可能不会被检测到。ms 为最长等待时间，通常省略以使用默认值。仅返回实际等待时长 waitedMs，不表示页面加载或操作结果。',
     parameters: {
       type: 'object',
       properties: {
-        ms: { type: 'number', description: '最长等待毫秒数（默认 1000）' },
+        ms: { type: 'number', minimum: 0, maximum: 30_000, description: '最长等待毫秒数（默认 1000，最大 30000）' },
       },
     },
   },
@@ -325,7 +368,7 @@ export const PHONE_TOOLS: Tool[] = [
   },
   {
     name: 'ui_find_node',
-    description: '只查询当前无障碍树中的节点并返回 observationId、matchCount 和 matches。每个候选包含 ref、文本、边界、中心坐标、资源 ID 与交互状态，并按匹配精确度排序；唯一命中时还会在顶层返回该节点字段，多于一个候选时 ambiguous=true 且不提供默认顶层 ref。ref、bounds 和 center 仅对当前界面有效。目标明确且下一步就是点击或填写时，直接使用 ui_tap 或 ui_fill，不需要先查询节点。',
+    description: '只查询当前无障碍树中的节点并返回 observationId、matchCount 和 matches。每个候选包含 ref、文本、边界、中心坐标、资源 ID 与交互状态，并按匹配精确度排序；唯一命中时还会在顶层返回该节点字段，多于一个候选时 ambiguous=true 且不提供默认顶层 ref。ref、bounds 和 center 仅对当前界面有效。填写语义明确的输入框时，可用本工具取得其 ref 后交给 ui_fill；已有可靠 ref 或已明确建立输入焦点时无需重复查询。',
     parameters: {
       type: 'object',
       properties: {

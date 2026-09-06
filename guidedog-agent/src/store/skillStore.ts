@@ -208,6 +208,11 @@ const SEED_SKILL = {
  * search. It is intentionally not a general app skill: playback, playlists,
  * account management and other product flows are outside its scope.
  */
+const LEGACY_NETEASE_FILL_STEP =
+  '5. 进入搜索页后，若输入框语义明确，直接调用 ui_fill 写入“歌手名 歌曲名”并提交；存在多个输入框时再观察和消歧。';
+const CURRENT_NETEASE_FILL_STEP =
+  '5. 进入搜索页后，通过 ui_inspect 或 ui_find_node 取得可编辑输入框的 ref，再用 ui_fill 的 ref 模式写入“歌手名 歌曲名”并提交。仅当最新观察或紧邻的输入框点击明确证明焦点已建立时，才使用 focused 模式。';
+
 const NETEASE_CLOUD_MUSIC_SEARCH_SKILL = {
   name: 'netease-cloud-music-search',
   description: '在网易云音乐中可靠进入搜索页并搜索指定歌曲、歌手或内容，覆盖播放器页、广告遮罩和搜索入口点击无效等场景',
@@ -220,7 +225,7 @@ const NETEASE_CLOUD_MUSIC_SEARCH_SKILL = {
     '2. 调用 ui_inspect 判断当前页面；如果树中没有明确、可点击的搜索入口，立即调用 ui_screenshot，不要通过 back 或 home 猜测导航路径。',
     '3. 若处于播放页但底部仍显示“搜索”页签，直接按“搜索”文本点击该页签。点击后页面未变化时，使用最新截图中“搜索”文字或图标的中心坐标重试一次。ref 和坐标只对当前页面有效，不得跨页面复用。',
     '4. 若有广告、视频或活动遮罩，先在截图中寻找“关闭”“跳过”或关闭图标；按钮暂不可用时等待一次后重新截图。不要用系统 back 关闭遮罩，以免直接退出网易云。',
-    '5. 进入搜索页后，若输入框语义明确，直接调用 ui_fill 写入“歌手名 歌曲名”并提交；存在多个输入框时再观察和消歧。',
+    CURRENT_NETEASE_FILL_STEP,
     '6. 搜索结果出现后，核对搜索词以及结果中的歌曲名、歌手名或内容类型；同名内容存在时不要只按标题判断。',
     '7. 用户目标仅为搜索时，在确认结果页已出现目标相关内容后调用 task_complete；不要擅自点击结果或开始播放。用户另有后续明确要求时，再依据当前界面继续处理，但不要把后续操作归因于本经验。',
     '',
@@ -236,6 +241,10 @@ const NETEASE_CLOUD_MUSIC_SEARCH_SKILL = {
     '- 完成前必须确认搜索词已提交，并且结果页出现与目标相关的歌曲、歌手或内容。',
   ].join('\n'),
 };
+const LEGACY_NETEASE_CLOUD_MUSIC_SEARCH_BODY = NETEASE_CLOUD_MUSIC_SEARCH_SKILL.body.replace(
+  CURRENT_NETEASE_FILL_STEP,
+  LEGACY_NETEASE_FILL_STEP,
+);
 
 /**
  * Bundled experience for Bilibili's one-click triple interaction only. The
@@ -278,6 +287,39 @@ const BILIBILI_ONE_CLICK_TRIPLE_SKILL = {
 };
 
 /**
+ * JD frequently exposes only partial semantics for custom-rendered areas.
+ * This experience prevents positional guesses while still allowing the
+ * lightweight accessibility path whenever it provides a reliable target.
+ */
+const LEGACY_JD_VISUAL_OBSERVATION_BODY = [
+  '## 适用场景',
+  '在京东 App 中观察页面或定位操作目标。',
+  '',
+  '## 操作原则',
+  '1. 优先调用 ui_inspect 读取当前页面。',
+  '2. 若 ui_inspect 未返回具有明确文本、内容描述、resourceId 或可点击状态的目标，不要根据位置、尺寸或无文本父容器猜测目标。',
+  '3. 信息不足时调用 ui_screenshot，依据当前截图中的视觉内容定位操作对象。',
+  '4. 有可靠语义节点时继续使用无障碍结构，不为每一步重复截图。',
+  '5. 页面变化后，旧 ref、截图坐标和 observationId 不再可靠；下一步需要界面信息时重新观察。',
+].join('\n');
+
+const JD_VISUAL_OBSERVATION_SKILL = {
+  name: '京东页面视觉观察',
+  description: '在京东页面中优先使用截图观察并可靠定位操作目标',
+  body: [
+    '## 适用场景',
+    '在京东 App 中进入新页面后观察界面，或定位当前页面上的首个操作目标。',
+    '',
+    '## 操作原则',
+    '1. 优先调用 ui_screenshot 观察当前页面，不要先调用 ui_inspect 猜测目标。',
+    '2. 依据最新截图中的视觉内容、OCR 文字或截图附带的明确语义定位目标；同一未变化页面已有最新截图时无需重复截图。',
+    '3. 只有截图仍无法确定目标时，才调用 ui_inspect 补充文本、内容描述、resourceId、可点击状态或节点边界。',
+    '4. 不得点击同时缺少文本、内容描述、resourceId 和可点击状态的节点；不得根据位置、尺寸或无文本父容器猜测目标。',
+    '5. 页面变化后，旧 ref、截图坐标和 observationId 不再可靠；下一步需要界面信息时重新调用 ui_screenshot。',
+  ].join('\n'),
+};
+
+/**
  * Bundled experience for deleting products from JD's shopping cart. The
  * workflow deliberately avoids fixed coordinates because JD's cart header is
  * custom-rendered and its OCR may merge adjacent labels such as “对比 管理”.
@@ -305,6 +347,7 @@ const BUILT_IN_SKILL_NAMES = new Set([
   SEED_SKILL.name,
   NETEASE_CLOUD_MUSIC_SEARCH_SKILL.name,
   BILIBILI_ONE_CLICK_TRIPLE_SKILL.name,
+  JD_VISUAL_OBSERVATION_SKILL.name,
   JD_CART_DELETE_SKILL.name,
 ]);
 
@@ -519,8 +562,26 @@ export async function loadSkills(options: LoadSkillsOptions = {}): Promise<void>
   // tombstone counts as an existing record: user deletion must survive reload.
   ensureBuiltInSkill(NETEASE_CLOUD_MUSIC_SEARCH_SKILL);
   ensureBuiltInSkill(BILIBILI_ONE_CLICK_TRIPLE_SKILL);
+  ensureBuiltInSkill(JD_VISUAL_OBSERVATION_SKILL);
   ensureBuiltInSkill(JD_CART_DELETE_SKILL);
+  updateBuiltInNeteaseSearchExperience();
+  updateBuiltInJdVisualObservationExperience();
   simplifyBuiltInBilibiliExperience();
+}
+
+/** Upgrade only the untouched bundled experience; preserve user edits. */
+function updateBuiltInNeteaseSearchExperience(): void {
+  const existing = _skills.find(
+    (skill) => skill.name === NETEASE_CLOUD_MUSIC_SEARCH_SKILL.name
+      && skill.builtIn
+      && skill.deletedAt === null,
+  );
+  if (!existing || existing.body !== LEGACY_NETEASE_CLOUD_MUSIC_SEARCH_BODY) return;
+  existing.body = NETEASE_CLOUD_MUSIC_SEARCH_SKILL.body;
+  existing.updatedAt = Date.now();
+  notify();
+  persistIndex();
+  void writeSkillFiles(existing);
 }
 
 function activeNameExists(name: string): boolean {
@@ -577,6 +638,22 @@ function simplifyBuiltInBilibiliExperience(): void {
   if (existing.description === LEGACY_BILIBILI_DESCRIPTION) {
     existing.description = BILIBILI_ONE_CLICK_TRIPLE_SKILL.description;
   }
+  existing.updatedAt = Date.now();
+  notify();
+  persistIndex();
+  void writeSkillFiles(existing);
+}
+
+/** Upgrade only the untouched bundled experience; preserve user edits. */
+function updateBuiltInJdVisualObservationExperience(): void {
+  const existing = _skills.find(
+    (skill) => skill.name === JD_VISUAL_OBSERVATION_SKILL.name
+      && skill.builtIn
+      && skill.deletedAt === null,
+  );
+  if (!existing || existing.body !== LEGACY_JD_VISUAL_OBSERVATION_BODY) return;
+  existing.description = JD_VISUAL_OBSERVATION_SKILL.description;
+  existing.body = JD_VISUAL_OBSERVATION_SKILL.body;
   existing.updatedAt = Date.now();
   notify();
   persistIndex();

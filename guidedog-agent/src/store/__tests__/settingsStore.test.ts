@@ -45,7 +45,7 @@ describe('settingsStore migration (thinking mode supported, v3)', () => {
     // Migration is persisted so a reinstall of an older build cannot regress.
     const stored = JSON.parse(mem['@deft/settings']);
     expect(stored.enableThinking).toBe(true);
-    expect(stored.__version).toBe(23);
+    expect(stored.__version).toBe(26);
   });
 
   it('migrates a v2 store (force-disabled by the old build) back to true', async () => {
@@ -57,7 +57,7 @@ describe('settingsStore migration (thinking mode supported, v3)', () => {
 
     const settings = await loadSettings();
     expect(settings.enableThinking).toBe(true);
-    expect(JSON.parse(mem['@deft/settings']).__version).toBe(23);
+    expect(JSON.parse(mem['@deft/settings']).__version).toBe(26);
   });
 
   it('preserves a v3 explicit thinking choice while upgrading to v4', async () => {
@@ -69,7 +69,7 @@ describe('settingsStore migration (thinking mode supported, v3)', () => {
 
     const settings = await loadSettings();
     expect(settings.enableThinking).toBe(false);
-    expect(JSON.parse(mem['@deft/settings']).__version).toBe(23);
+    expect(JSON.parse(mem['@deft/settings']).__version).toBe(26);
   });
 
   it('migrates stores without any version marker exactly once', async () => {
@@ -87,9 +87,10 @@ describe('settingsStore migration (thinking mode supported, v3)', () => {
   it('resetSettings writes the current version marker and default', async () => {
     await resetSettings();
     const stored = JSON.parse(mem['@deft/settings']);
-    expect(stored.__version).toBe(23);
+    expect(stored.__version).toBe(26);
     expect(stored.screenshotNodeMarkersEnabled).toBe(true);
     expect(stored.screenshotDownscalingEnabled).toBe(true);
+    expect(stored.screenshotScale).toBe(0.6);
     expect(stored.ocrEnhancementEnabled).toBe(true);
     expect(stored.nodeTargetGestureTapEnabled).toBe(true);
     expect(stored.enableThinking).toBe(true);
@@ -99,9 +100,33 @@ describe('settingsStore migration (thinking mode supported, v3)', () => {
     expect(stored.contextCompressionThresholdPercent).toBe(85);
     expect(stored.contextCompressionProtectedRecentRounds).toBe(4);
     expect(stored.maxConversationHistoryTurns).toBe(2);
-    expect(stored.forceVisualMode).toBe(false);
     expect(stored.recommendedCommandsEnabled).toBe(true);
     expect(stored.tavilyApiKey).toBe('');
+  });
+
+  it('removes the legacy forced visual mode setting', async () => {
+    mem['@deft/settings'] = JSON.stringify({
+      ...DEFAULT_SETTINGS,
+      forceVisualMode: true,
+      __version: 23,
+    });
+
+    await loadSettings();
+    expect(JSON.parse(mem['@deft/settings']).forceVisualMode).toBeUndefined();
+    expect(JSON.parse(mem['@deft/settings']).__version).toBe(26);
+  });
+
+  it('removes the legacy fixed AgentLoop delay setting', async () => {
+    mem['@deft/settings'] = JSON.stringify({
+      ...DEFAULT_SETTINGS,
+      settleMs: 500,
+      __version: 24,
+    });
+
+    const settings = await loadSettings();
+    expect('settleMs' in settings).toBe(false);
+    expect(JSON.parse(mem['@deft/settings']).settleMs).toBeUndefined();
+    expect(JSON.parse(mem['@deft/settings']).__version).toBe(26);
   });
 
   it('persists the Tavily key independently from the active model credential', async () => {
@@ -121,7 +146,7 @@ describe('settingsStore migration (thinking mode supported, v3)', () => {
     });
 
     expect((await loadSettings()).nodeTargetGestureTapEnabled).toBe(true);
-    expect(JSON.parse(mem['@deft/settings']).__version).toBe(23);
+    expect(JSON.parse(mem['@deft/settings']).__version).toBe(26);
 
     await saveSettings({ nodeTargetGestureTapEnabled: false });
     expect((await loadSettings()).nodeTargetGestureTapEnabled).toBe(false);
@@ -145,15 +170,6 @@ describe('settingsStore migration (thinking mode supported, v3)', () => {
     expect(JSON.parse(mem['@deft/settings']).dismissedRecommendedCommands).toEqual(['现在几点']);
   });
 
-  it('persists forced visual mode while keeping it off by default', async () => {
-    await resetSettings();
-    expect((await loadSettings()).forceVisualMode).toBe(false);
-
-    await saveSettings({ forceVisualMode: true });
-    expect((await loadSettings()).forceVisualMode).toBe(true);
-    expect(JSON.parse(mem['@deft/settings']).forceVisualMode).toBe(true);
-  });
-
   it('defaults OCR enhancement on and persists an explicit opt-out', async () => {
     const legacy = { ...DEFAULT_SETTINGS } as Record<string, unknown>;
     delete legacy.ocrEnhancementEnabled;
@@ -161,25 +177,34 @@ describe('settingsStore migration (thinking mode supported, v3)', () => {
     mem['@deft/settings'] = JSON.stringify(legacy);
 
     expect((await loadSettings()).ocrEnhancementEnabled).toBe(true);
-    expect(JSON.parse(mem['@deft/settings']).__version).toBe(23);
+    expect(JSON.parse(mem['@deft/settings']).__version).toBe(26);
 
     await saveSettings({ ocrEnhancementEnabled: false });
     expect((await loadSettings()).ocrEnhancementEnabled).toBe(false);
     expect(JSON.parse(mem['@deft/settings']).ocrEnhancementEnabled).toBe(false);
   });
 
-  it('defaults screenshot downscaling on and persists an explicit opt-out', async () => {
+  it('migrates screenshot downscaling to a bounded proportional scale', async () => {
     const legacy = { ...DEFAULT_SETTINGS } as Record<string, unknown>;
     delete legacy.screenshotDownscalingEnabled;
     legacy.__version = 22;
     mem['@deft/settings'] = JSON.stringify(legacy);
 
     expect((await loadSettings()).screenshotDownscalingEnabled).toBe(true);
-    expect(JSON.parse(mem['@deft/settings']).__version).toBe(23);
+    expect((await loadSettings()).screenshotScale).toBe(0.6);
+    expect(JSON.parse(mem['@deft/settings']).__version).toBe(26);
 
     await saveSettings({ screenshotDownscalingEnabled: false });
     expect((await loadSettings()).screenshotDownscalingEnabled).toBe(false);
+    expect((await loadSettings()).screenshotScale).toBe(1);
     expect(JSON.parse(mem['@deft/settings']).screenshotDownscalingEnabled).toBe(false);
+
+    await saveSettings({ screenshotScale: 0.73 });
+    expect((await loadSettings()).screenshotScale).toBe(0.73);
+    expect((await loadSettings()).screenshotDownscalingEnabled).toBe(true);
+
+    await saveSettings({ screenshotScale: 0.1 });
+    expect((await loadSettings()).screenshotScale).toBe(0.5);
   });
 
   it('migrates the previous default to 50 while preserving explicit values', async () => {
@@ -197,7 +222,7 @@ describe('settingsStore migration (thinking mode supported, v3)', () => {
     mem['@deft/settings'] = JSON.stringify(legacy);
 
     expect((await loadSettings()).consecutiveCircuitBreakerLimit).toBe(8);
-    expect(JSON.parse(mem['@deft/settings']).__version).toBe(23);
+    expect(JSON.parse(mem['@deft/settings']).__version).toBe(26);
 
     await saveSettings({ consecutiveCircuitBreakerLimit: 100 });
     expect((await loadSettings()).consecutiveCircuitBreakerLimit).toBe(50);
@@ -217,7 +242,7 @@ describe('settingsStore migration (thinking mode supported, v3)', () => {
     expect(settings.maxConversationHistoryTurns).toBe(7);
     expect(stored.maxConversationHistoryTurns).toBe(7);
     expect(stored.maxConversationHistoryTasks).toBeUndefined();
-    expect(stored.__version).toBe(23);
+    expect(stored.__version).toBe(26);
   });
 
   it('migrates the former v8 default of 12 tasks to the new default of 8 turns', async () => {
@@ -240,7 +265,7 @@ describe('settingsStore migration (thinking mode supported, v3)', () => {
     const settings = await loadSettings();
     expect(settings.contextCompressionEnabled).toBe(true);
     expect((settings as unknown as Record<string, unknown>).maxHistoryItems).toBeUndefined();
-    expect(JSON.parse(mem['@deft/settings']).__version).toBe(23);
+    expect(JSON.parse(mem['@deft/settings']).__version).toBe(26);
     expect(JSON.parse(mem['@deft/settings']).maxHistoryItems).toBeUndefined();
 
     await saveSettings({ contextCompressionEnabled: false });
@@ -307,7 +332,7 @@ describe('settingsStore migration (thinking mode supported, v3)', () => {
     const settings = await loadSettings();
     expect('toolPreset' in settings).toBe(false);
     expect(JSON.parse(mem['@deft/settings']).toolPreset).toBeUndefined();
-    expect(JSON.parse(mem['@deft/settings']).__version).toBe(23);
+    expect(JSON.parse(mem['@deft/settings']).__version).toBe(26);
   });
 });
 
@@ -333,7 +358,7 @@ describe('settingsStore cloud model profiles', () => {
       contextWindowTokens: 262_144,
     }]);
     expect(settings.activeCloudModelProfileId).toBe('default-cloud-model');
-    expect(JSON.parse(mem['@deft/settings']).__version).toBe(23);
+    expect(JSON.parse(mem['@deft/settings']).__version).toBe(26);
   });
 
   it('projects the selected profile into the runtime cloud fields', async () => {
@@ -448,7 +473,7 @@ describe('settingsStore per-tool configuration overrides', () => {
     expect(settings.toolConfigurationOverrides).toEqual({
       browser_manage: { enabled: false, label: '网页助手', description: '只在需要操作网页时使用。' },
     });
-    expect(JSON.parse(mem['@deft/settings']).__version).toBe(23);
+    expect(JSON.parse(mem['@deft/settings']).__version).toBe(26);
   });
 
   it('updates and resets one tool without replacing other tool metadata', async () => {

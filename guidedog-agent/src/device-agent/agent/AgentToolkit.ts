@@ -1,4 +1,4 @@
-import type { ScreenshotImage, Tool, ToolCall } from '../types';
+import type { ScreenshotImage, Tool, ToolCall, ToolFailure } from '../types';
 import { PHONE_TOOLS } from '../tools/PhoneTools';
 import { ToolRegistry } from '../tools/ToolRegistry';
 import { toolFailure } from '../tools/ToolResult';
@@ -10,8 +10,6 @@ import {
 import { canonicalToolName } from '../tools/ToolCircuitBreakerPolicy';
 import {
   applyToolConfiguration,
-  FORCE_VISUAL_BLOCKED_TOOLS,
-  FORCE_VISUAL_REQUIRED_TOOL,
   isToolEnabled,
   normalizeToolConfigurationOverrides,
   type ToolConfigurationOverrides,
@@ -144,6 +142,7 @@ let AccessibilityController: {
   openApp: (packageName: string) => Promise<boolean>;
   getInstalledApps: () => Promise<Array<{ packageName: string; label: string }>>;
   getScreenText: () => Promise<string>;
+  getSemanticSnapshot: () => Promise<{ signature: string; truncated: boolean }>;
   globalAction: (action: string) => Promise<boolean>;
   takeScreenshot: () => Promise<ScreenshotImage>;
   captureWithMediaProjection: () => Promise<ScreenshotImage>;
@@ -392,7 +391,22 @@ const SCROLL_DISTANCE_RATIOS = {
 type ScrollDistance = keyof typeof SCROLL_DISTANCE_RATIOS;
 
 const WAIT_TOOLS = new Set(['wait', 'ui_wait_for_node', 'ui_wait_for_change']);
+/** Deprecated specialized waits remain registered for compatibility but are not model-visible. */
+const MODEL_DISABLED_PHONE_TOOLS = new Set(['ui_wait_for_node', 'ui_wait_for_change']);
 const USER_GATE_TOOLS = new Set(['confirm_action', 'ask_user', 'request_user_action']);
+export const EXECUTE_TOOLS_NAME = 'execute_tools';
+export const MAX_TOOL_SEQUENCE_CALLS = 8;
+export const MAX_TOOL_SEQUENCE_DURATION_MS = 30_000;
+const TOOL_SEQUENCE_FORBIDDEN_TOOLS = new Set([
+  EXECUTE_TOOLS_NAME,
+  'task_complete',
+  'task_failed',
+  'confirm_action',
+  'ask_user',
+  'request_user_action',
+  'todo_create',
+  'todo_update',
+]);
 const BROWSER_MANAGE_CHANGING_OPERATIONS = new Set([
   'execute_js', 'hover', 'new_tab', 'close_tab', 'set_user_agent', 'set_viewport', 'set_cookies',
 ]);
@@ -464,6 +478,13 @@ export function actionFailedOrNoOp(result: unknown): boolean {
   return false;
 }
 
+function sequencePreflightFailure(index: number, message: string): ToolFailure {
+  return toolFailure(`第 ${index + 1} 个子调用无效：${message}`, 'TOOL_SEQUENCE_PREFLIGHT_FAILED', {
+    retryable: true,
+    details: { index },
+  });
+}
+
 /**
  * Loop-owned capabilities the tool handlers need at execution time. They are
  * injected as callbacks so this class keeps no dependency on AgentLoop itself.
@@ -480,6 +501,8 @@ export interface AgentToolkitDeps {
   captureScreenshot?: () => Promise<ScreenshotImage | undefined>;
   /** Privacy-safe visual preprocessing timings owned by AgentLoop. */
   onTimingDiagnostic?: (event: Record<string, unknown>) => void;
+  /** Loop-owned serial executor; keeps nested calls inside existing safety and observation boundaries. */
+  executeToolSequence?: (calls: ToolCall[], stopOnError: boolean) => Promise<unknown>;
 }
 
 export interface AgentToolkitOptions {
@@ -495,12 +518,10 @@ export interface AgentToolkitOptions {
   }>;
   /** Per-tool availability and description overrides frozen by AgentLoop creation. */
   toolConfigurationOverrides?: ToolConfigurationOverrides;
-  /** Make screenshot the only model-visible Android UI observation entry point. */
-  forceVisualMode?: boolean;
   /** Draw actionable accessibility refs on screenshot copies sent to the model. */
   screenshotNodeMarkersEnabled?: boolean;
-  /** Downscale the model-only screenshot copy. Default: true. */
-  screenshotDownscalingEnabled?: boolean;
+  /** Proportional scale for the model-only screenshot copy. Range: 0.5–1.0. */
+  screenshotScale?: number;
   /** Allow ui_screenshot to run bundled OCR and expose OCR-derived refs. */
   ocrEnhancementEnabled?: boolean;
   /** Emergency rollback: bypass node actions and tap the live center directly. */
@@ -508,9 +529,6 @@ export interface AgentToolkitOptions {
   /** Host-owned blocking confirmation surface for high-risk calls. */
   toolRiskGate?: import('../types').AgentOptions['toolRiskGate'];
 }
-
-const FORCE_VISUAL_SCREENSHOT_DESCRIPTION =
-  '获取当前手机截图，同时返回采集时的 Android 无障碍结构，用于理解用户实际看到的完整页面。当前为强制视觉模式：需要观察界面、验证操作结果或判断任务状态时统一调用本工具。普通问答、已有新鲜截图或不依赖手机界面时不要调用。';
 
 const SCREENSHOT_MARKER_DESCRIPTION =
   '截图会标记可操作节点。ref 只标识目标，不代表点击一定产生页面效果。使用没有 ref 的视觉坐标执行操作时，须携带该截图的 observationId；界面变化后应重新观察。';
@@ -565,18 +583,12 @@ export class AgentToolkit {
   private readonly toolConfigurationOverrides: ToolConfigurationOverrides;
   private readonly configuredUiEffects = new Map<string, ToolUiEffect>();
   private readonly adaptiveUiEffectTools = new Set<string>();
-  private readonly forceVisualMode: boolean;
   private readonly screenshotNodeMarkersEnabled: boolean;
-  private readonly screenshotDownscalingEnabled: boolean;
+  private readonly screenshotScale: number;
   private readonly ocrEnhancementEnabled: boolean;
   private readonly nodeTargetGestureTapEnabled: boolean;
   private readonly riskInterceptor: ToolRiskInterceptor;
-  private readonly observedRefTargets = new Map<string, CachedObservedRefTarget>();
-  private readonly activeUiObservations = new Map<string, {
-    kind: 'tree' | 'shot';
-    width?: number;
-    height?: number;
-  }>();
+  private currentUiObservation: CurrentUiObservation | null = null;
   private treeObservationSequence = 0;
   private visualObservationSequence = 0;
   /** Note store backing write_note / read_note (owned by the loop, shared here). */
@@ -587,9 +599,10 @@ export class AgentToolkit {
   constructor(deps: AgentToolkitDeps, options: AgentToolkitOptions = {}) {
     this.deps = deps;
     this.notes = deps.notes;
-    this.forceVisualMode = options.forceVisualMode === true;
     this.screenshotNodeMarkersEnabled = options.screenshotNodeMarkersEnabled === true;
-    this.screenshotDownscalingEnabled = options.screenshotDownscalingEnabled !== false;
+    this.screenshotScale = typeof options.screenshotScale === 'number' && Number.isFinite(options.screenshotScale)
+      ? Math.max(0.5, Math.min(1, options.screenshotScale))
+      : 0.6;
     this.ocrEnhancementEnabled = options.ocrEnhancementEnabled !== false;
     this.nodeTargetGestureTapEnabled = options.nodeTargetGestureTapEnabled !== false;
     this.riskInterceptor = new ToolRiskInterceptor({
@@ -611,24 +624,18 @@ export class AgentToolkit {
       : null;
     this.tools = PHONE_TOOLS
       .filter((tool) => {
-        if (this.forceVisualMode && FORCE_VISUAL_BLOCKED_TOOLS.has(tool.name)) {
-          return false;
-        }
-        const enabled = this.forceVisualMode && tool.name === FORCE_VISUAL_REQUIRED_TOOL
-          ? true
-          : isToolEnabled(
-            tool.name,
-            allowed === null || allowed.has(tool.name),
-            this.toolConfigurationOverrides,
-          );
+        if (MODEL_DISABLED_PHONE_TOOLS.has(tool.name)) return false;
+        const enabled = isToolEnabled(
+          tool.name,
+          allowed === null || allowed.has(tool.name),
+          this.toolConfigurationOverrides,
+        );
         if (enabled) this.enabledToolNames.add(canonicalToolName(tool.name));
         return enabled;
       })
       .map((tool) => {
         const configured = applyToolConfiguration(tool, this.toolConfigurationOverrides);
-        let modeAdjusted = this.forceVisualMode && tool.name === FORCE_VISUAL_REQUIRED_TOOL
-          ? { ...configured, description: FORCE_VISUAL_SCREENSHOT_DESCRIPTION }
-          : configured;
+        let modeAdjusted = configured;
         if (!this.ocrEnhancementEnabled && tool.name === 'ui_screenshot') {
           modeAdjusted = withoutScreenshotOcrCapability(modeAdjusted);
         }
@@ -704,43 +711,15 @@ export class AgentToolkit {
 
   /** Execute a tool call through the registered handler. */
   async execute(call: ToolCall): Promise<unknown> {
+    const preflightFailure = this.validateCall(call);
+    if (preflightFailure) return preflightFailure;
     const canonicalCallName = canonicalToolName(call.name);
-    if (
-      (canonicalCallName === 'ui_tap' || canonicalCallName === 'ui_long_press') &&
-      call.arguments.coordinateSpace !== undefined
-    ) {
-      return toolFailure('坐标空间不再由调用方选择；coordinate 固定使用最新截图的 0～1000 归一化坐标', 'INVALID_ARGUMENT', {
-        retryable: true,
-        hint: '移除 coordinateSpace；无障碍树目标请使用 ref、text、content_description 或 resource_id。',
-      });
-    }
-    if (
-      this.registry.has(call.name) &&
-      !this.enabledToolNames.has(canonicalCallName)
-    ) {
-      return toolFailure('工具已在设置中禁用', 'TOOL_DISABLED', {
-        retryable: false,
-        hint: `工具 ${canonicalToolName(call.name)} 已在设置中禁用，请改用当前可用工具。`,
-      });
-    }
     const modelTool = this.tools.find(
       (tool) => canonicalToolName(tool.name) === canonicalCallName,
     );
     const normalizedCall = modelTool
       ? { ...call, arguments: normalizeArgsBySchema(call.arguments, modelTool.parameters) }
       : call;
-    // Validate the actual handler arguments before opening a user-facing
-    // risk gate. Model-only metadata is deliberately absent from the runtime
-    // schema and is validated by the interceptor itself.
-    if (this.riskInterceptor.requiresConfirmation(normalizedCall)) {
-      const { _risk: _ignoredRisk, _changesScreen: _ignoredEffect, ...runtimeArguments } =
-        normalizedCall.arguments;
-      const preflightFailure = this.registry.validate({
-        ...normalizedCall,
-        arguments: runtimeArguments,
-      });
-      if (preflightFailure) return preflightFailure;
-    }
     const interception = await this.riskInterceptor.intercept(normalizedCall);
     if (!interception.ok) return interception.failure;
     const executableCall = interception.call;
@@ -756,7 +735,7 @@ export class AgentToolkit {
     };
     const result = suspendsOverlayDuringToolExecution(canonicalCallName)
       ? await withOverlaySuspendedForObservation(
-        dispatch,
+        async () => dispatch(),
         canonicalCallName === 'ui_screenshot' ? SCREENSHOT_OVERLAY_SETTLE_MS : 0,
         this.deps.delay,
       )
@@ -766,6 +745,95 @@ export class AgentToolkit {
       this.invalidateUiObservations();
     }
     return result;
+  }
+
+  /** Validate one model call without dispatching it or opening a user confirmation. */
+  validateCall(call: ToolCall): ToolFailure | null {
+    const canonicalCallName = canonicalToolName(call.name);
+    if (
+      SCREEN_CHANGING_TOOLS.has(canonicalCallName) &&
+      call.arguments.waitMs !== undefined
+    ) {
+      return toolFailure('UI 操作工具不再支持 waitMs；需要等待时请单独调用 wait，或在 execute_tools 中插入 wait 子调用', 'INVALID_ARGUMENT', {
+        retryable: true,
+      });
+    }
+    if (
+      (canonicalCallName === 'ui_tap' || canonicalCallName === 'ui_long_press') &&
+      call.arguments.coordinateSpace !== undefined
+    ) {
+      return toolFailure('坐标空间不再由调用方选择；coordinate 固定使用最新截图的 0～1000 归一化坐标', 'INVALID_ARGUMENT', {
+        retryable: true,
+        hint: '移除 coordinateSpace；无障碍树目标请使用 ref、text、content_description 或 resource_id。',
+      });
+    }
+    if (this.registry.has(call.name) && !this.enabledToolNames.has(canonicalCallName)) {
+      return toolFailure('工具已在设置中禁用', 'TOOL_DISABLED', {
+        retryable: false,
+        hint: `工具 ${canonicalCallName} 已在设置中禁用，请改用当前可用工具。`,
+      });
+    }
+    const modelTool = this.tools.find(
+      (tool) => canonicalToolName(tool.name) === canonicalCallName,
+    );
+    const normalizedCall = modelTool
+      ? { ...call, arguments: normalizeArgsBySchema(call.arguments, modelTool.parameters) }
+      : call;
+    const riskFailure = this.riskInterceptor.validate(normalizedCall);
+    if (riskFailure) return riskFailure;
+    const { _risk: _ignoredRisk, _changesScreen: _ignoredEffect, ...runtimeArguments } =
+      normalizedCall.arguments;
+    return this.registry.validate({ ...normalizedCall, arguments: runtimeArguments }) as ToolFailure | null;
+  }
+
+  /** Parse and preflight an entire serial plan before its first side effect. */
+  preflightToolSequence(args: Record<string, unknown>):
+    | { ok: true; calls: ToolCall[]; stopOnError: boolean }
+    | { ok: false; failure: ToolFailure } {
+    const rawCalls = args.calls;
+    if (!Array.isArray(rawCalls) || rawCalls.length < 2 || rawCalls.length > MAX_TOOL_SEQUENCE_CALLS) {
+      return {
+        ok: false,
+        failure: toolFailure(`calls 必须包含 2～${MAX_TOOL_SEQUENCE_CALLS} 个工具调用`, 'INVALID_ARGUMENT', {
+          retryable: true,
+        }),
+      };
+    }
+    const calls: ToolCall[] = [];
+    for (let index = 0; index < rawCalls.length; index += 1) {
+      const raw = rawCalls[index];
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+        return { ok: false, failure: sequencePreflightFailure(index, '子调用必须是对象') };
+      }
+      const record = raw as Record<string, unknown>;
+      const unexpected = Object.keys(record).filter((key) => key !== 'name' && key !== 'arguments');
+      if (unexpected.length > 0) {
+        return { ok: false, failure: sequencePreflightFailure(index, `包含未知字段：${unexpected.join(', ')}`) };
+      }
+      if (typeof record.name !== 'string' || !record.name.trim()) {
+        return { ok: false, failure: sequencePreflightFailure(index, '缺少有效的工具名称') };
+      }
+      const name = canonicalToolName(record.name);
+      if (TOOL_SEQUENCE_FORBIDDEN_TOOLS.has(name)) {
+        return { ok: false, failure: sequencePreflightFailure(index, `工具 ${name} 不允许放入批量序列`) };
+      }
+      if (!record.arguments || typeof record.arguments !== 'object' || Array.isArray(record.arguments)) {
+        return { ok: false, failure: sequencePreflightFailure(index, 'arguments 必须是 JSON 对象') };
+      }
+      const call: ToolCall = { name, arguments: record.arguments as Record<string, unknown> };
+      const failure = this.validateCall(call);
+      if (failure) {
+        return {
+          ok: false,
+          failure: toolFailure(`第 ${index + 1} 个子调用 ${name} 预检失败`, 'TOOL_SEQUENCE_PREFLIGHT_FAILED', {
+            retryable: failure.code !== 'TOOL_DISABLED',
+            details: { index, tool: name, cause: failure },
+          }),
+        };
+      }
+      calls.push(call);
+    }
+    return { ok: true, calls, stopOnError: args.stopOnError !== false };
   }
 
   /** True when this concrete call will block on the host risk gate. */
@@ -784,7 +852,7 @@ export class AgentToolkit {
       args.operation,
     ].filter((value): value is string => typeof value === 'string');
     if (typeof args.ref === 'string') {
-      const target = this.observedRefTargets.get(args.ref);
+      const target = this.currentUiObservation?.refs.get(args.ref);
       if (target?.label) semantic.push(target.label);
       if (target?.resourceId) semantic.push(target.resourceId);
     }
@@ -804,7 +872,7 @@ export class AgentToolkit {
   enrichToolCallForCircuitBreaker(call: ToolCall): ToolCall {
     if (canonicalToolName(call.name) !== 'ui_tap') return call;
     if (typeof call.arguments.ref !== 'string') return call;
-    const target = this.observedRefTargets.get(call.arguments.ref);
+    const target = this.currentUiObservation?.refs.get(call.arguments.ref);
     if (!target) return call;
     return {
       ...call,
@@ -823,6 +891,17 @@ export class AgentToolkit {
   private registerDefaultTools(): void {
     const phoneTool = (name: string) =>
       PHONE_TOOLS.find((t) => t.name === name)!;
+    this.registry.register(phoneTool(EXECUTE_TOOLS_NAME), async (args) => {
+      const plan = this.preflightToolSequence(args);
+      if (!plan.ok) return plan.failure;
+      if (!this.deps.executeToolSequence) {
+        return toolFailure('当前运行环境未提供批量工具执行器', 'TOOL_UNAVAILABLE', {
+          retryable: false,
+          hint: '请降级为逐个调用原子工具。',
+        });
+      }
+      return this.deps.executeToolSequence(plan.calls, plan.stopOnError);
+    });
     // The registry accepts fields emitted by older prompt versions. `dispatch`
     // remains runtime-only so stored calls can be replayed without exposing an
     // implementation switch in the current model-facing contract.
@@ -852,8 +931,8 @@ export class AgentToolkit {
       y: number,
       observationId: string,
     ) => {
-      const observation = this.activeUiObservations.get(observationId);
-      if (!observation) {
+      const observation = this.currentUiObservation;
+      if (!observation || observation.id !== observationId) {
         return {
           error: toolFailure('坐标所属的 UI 观察已失效', 'STALE_UI_OBSERVATION', {
             retryable: true,
@@ -895,8 +974,8 @@ export class AgentToolkit {
         });
       }
       const tree = await this.deps.inspectUi();
-      this.rememberObservedRefs(tree);
       const observationId = this.rememberUiObservation('tree');
+      this.rememberObservedRefs(tree);
       return `observationId=${observationId}\n${tree}`;
     });
 
@@ -991,7 +1070,6 @@ export class AgentToolkit {
             : `=== 屏幕元素 === (读取失败：${
               treeResult.reason instanceof Error ? treeResult.reason.message : String(treeResult.reason)
             })`;
-        if (treeResult.status === 'fulfilled') this.rememberObservedRefs(accessibilityTree);
         const observationId = `shot_${(++this.visualObservationSequence).toString(36)}`;
         const ocrStartedAt = Date.now();
         const ocrResult = this.ocrEnhancementEnabled
@@ -1024,7 +1102,8 @@ export class AgentToolkit {
           stage: 'vision_resize',
           durationMs: Date.now() - resizeStartedAt,
           status: 'ok',
-          enabled: this.screenshotDownscalingEnabled,
+          enabled: this.screenshotScale < 1,
+          scale: this.screenshotScale,
           sourceWidth: annotatedObservationImage.width,
           sourceHeight: annotatedObservationImage.height,
           modelWidth: modelObservationImage.width,
@@ -1038,6 +1117,7 @@ export class AgentToolkit {
         const physicalHeight = positiveImageDimension(observationImage.height)
           ?? positiveImageDimension(annotatedObservationImage.height);
         this.rememberUiObservation('shot', observationId, physicalWidth, physicalHeight);
+        if (treeResult.status === 'fulfilled') this.rememberObservedRefs(accessibilityTree);
         this.rememberOcrRefs(
           observationId,
           ocrResult?.elements ?? [],
@@ -1199,16 +1279,20 @@ export class AgentToolkit {
           }
           return {
             ok: true,
-            data: { dispatched: true, effect: 'unknown', mode: legacySemantic ? inferredMode : mode, ...result },
+            data: { dispatched: true, mode: legacySemantic ? inferredMode : mode, ...result },
           };
         }
 
         if (mode === 'ref') {
           const ref = typeof args.ref === 'string' ? args.ref.trim() : '';
-          const cachedTarget = this.observedRefTargets.get(ref);
+          const cachedTarget = this.currentUiObservation?.refs.get(ref);
           if (cachedTarget?.source === 'ocr') {
-            const observation = this.activeUiObservations.get(cachedTarget.observationId);
-            if (!observation || observation.kind !== 'shot') {
+            const observation = this.currentUiObservation;
+            if (
+              !observation ||
+              observation.kind !== 'shot' ||
+              observation.id !== cachedTarget.observationId
+            ) {
               return toolFailure('目标 ref 已失效', 'STALE_TARGET_REF', {
                 retryable: true,
                 hint: '界面已变化或 ref 过期；请重新观察。',
@@ -1226,7 +1310,6 @@ export class AgentToolkit {
               ok: true,
               data: {
                 dispatched: true,
-                effect: 'unknown',
                 mode,
                 source: 'ocr',
                 ref,
@@ -1275,7 +1358,7 @@ export class AgentToolkit {
           }
           return {
             ok: true,
-            data: { dispatched: true, effect: 'unknown', mode, ...result },
+            data: { dispatched: true, mode, ...result },
           };
         }
 
@@ -1297,7 +1380,6 @@ export class AgentToolkit {
           ok: true,
           data: {
             dispatched: true,
-            effect: 'unknown',
             mode,
             x,
             y,
@@ -1315,7 +1397,28 @@ export class AgentToolkit {
     // compatible; current model requests use explicit atomic target modes.
     this.registry.register(runtimeTapTool, tapHandler);
 
-    this.registry.register(phoneTool('ui_fill'), async (args) => {
+    // Keep legacy semantic fill targets executable for stored-call replay,
+    // while the model-facing contract exposes only explicit ref/current focus.
+    const runtimeFillTool = {
+      ...phoneTool('ui_fill'),
+      parameters: {
+        ...phoneTool('ui_fill').parameters,
+        properties: {
+          ...phoneTool('ui_fill').parameters.properties,
+          mode: {
+            type: 'string' as const,
+            description: '输入框定位方式（含历史兼容模式）',
+            enum: ['ref', 'focused', 'text', 'content_description', 'resource_id'],
+          },
+          targetText: { type: 'string' as const, description: '历史兼容字段' },
+          contentDescription: { type: 'string' as const, description: '历史兼容字段' },
+          resourceId: { type: 'string' as const, description: '历史兼容字段' },
+          matchIndex: { type: 'number' as const, description: '历史兼容字段' },
+        },
+      },
+    };
+
+    this.registry.register(runtimeFillTool, async (args) => {
       const ctrl = getController();
       const mode = typeof args.mode === 'string' ? args.mode : '';
       const value = typeof args.value === 'string' ? args.value : null;
@@ -1463,9 +1566,15 @@ export class AgentToolkit {
       }
 
       if (!editableRef) {
-        return toolFailure('点击目标后未找到已聚焦的可编辑输入框', 'FOCUS_FAILED', {
+        if (mode === 'focused') {
+          return toolFailure('当前没有已聚焦的可编辑输入框', 'NO_FOCUSED_EDITABLE', {
+            retryable: true,
+            hint: '请先明确点击输入框并确认焦点已建立，或重新观察后使用 ref 模式。',
+          });
+        }
+        return toolFailure('指定目标不是可编辑输入框，且点击后未建立可编辑焦点', 'TARGET_NOT_EDITABLE', {
           retryable: true,
-          hint: '请重新观察输入框语义；存在多个相似目标时先消歧，或在输入框已聚焦后使用 focused 模式。',
+          hint: '请重新观察并使用可编辑节点的 ref。',
           details: focusResult,
         });
       }
@@ -2021,7 +2130,10 @@ export class AgentToolkit {
 
     this.registry.register(phoneTool('ui_dump_raw_tree'), async () => {
       const snapshot = await readRawAccessibilitySnapshotWithoutOverlay();
+      const observationId = this.rememberUiObservation('tree');
+      this.rememberObservedRefs(ScreenSerializer.serialize(snapshot.nodes));
       return {
+        observationId,
         format: 'depth_first_flat_tree',
         hierarchy: 'Use index, parentIndex, depth and childCount to reconstruct the tree.',
         ...snapshot,
@@ -2044,6 +2156,7 @@ export class AgentToolkit {
       const tree = direct?.nodes ?? await readAccessibilityTreeWithoutOverlay();
       const matches = collectAllNodeDetails(tree, query);
       const observationId = this.rememberUiObservation('tree');
+      this.rememberAccessibilityRefDetails(matches);
       if (matches.length > 0) {
         const result = {
           observationId,
@@ -2086,34 +2199,34 @@ export class AgentToolkit {
     this.registry.register(phoneTool('wait'), async (args) => {
       const ctrl = getController();
       const ms = Math.max(0, args.ms !== undefined ? Number(args.ms) : 1000);
-      // `ms` is the maximum wait time: poll the screen every 500ms and
-      // return early the moment the content changes (page loaded, animation
-      // finished), so the next observation sees the new screen sooner.
-      let baseline: string | null = null;
-      try {
-        baseline = await ctrl.getScreenText();
-      } catch {
-        // No readable screen: degrade to a plain delay.
-        await this.deps.delay(ms);
-        return `等待 ${ms}ms 完成`;
-      }
+      // Compare OpenMinis-style window root signatures without transferring trees.
       const started = Date.now();
-      const pollMs = 500;
       const deadline = started + ms;
+      const stableDurationMs = 500;
+      const pollMs = 200;
+      let baseline: string | null = null;
+      let stableSince = started;
       while (Date.now() < deadline) {
+        try {
+          const snapshot = await ctrl.getSemanticSnapshot();
+          const current = snapshot.signature;
+          const now = Date.now();
+          if (now > deadline) break;
+          if (baseline === null || current !== baseline) {
+            baseline = current;
+            stableSince = now;
+          } else if (now - stableSince >= stableDurationMs) {
+            return { waitedMs: now - started };
+          }
+        } catch {
+          // An unreadable interval cannot count towards stability.
+          baseline = null;
+        }
         const remaining = deadline - Date.now();
         if (remaining <= 0) break;
         await this.deps.delay(Math.min(pollMs, remaining));
-        try {
-          const current = await ctrl.getScreenText();
-          if (current !== baseline) {
-            return `等待中屏幕已变化（第 ${Date.now() - started}ms），提前返回`;
-          }
-        } catch {
-          // A single failed read is not fatal: keep waiting.
-        }
       }
-      return `等待 ${ms}ms 完成，屏幕未变化`;
+      return { waitedMs: Date.now() - started };
     });
 
     this.registry.register(phoneTool('ui_wait_for_node'), async (args) => {
@@ -2357,14 +2470,14 @@ export class AgentToolkit {
     ]);
   }
 
-  /** Cap only the inference attachment; screen geometry remains original. */
+  /** Scale only the inference attachment; screen geometry remains original. */
   private async resizeScreenshotForModel(image: ScreenshotImage): Promise<ScreenshotImage> {
-    const maxEdge = 2000;
     const jpegQuality = 85;
-    if (!this.screenshotDownscalingEnabled || !image.path) return image;
+    if (this.screenshotScale >= 1 || !image.path) return image;
     const width = positiveImageDimension(image.width);
     const height = positiveImageDimension(image.height);
-    if (!width || !height || Math.max(width, height) <= maxEdge) return image;
+    if (!width || !height) return image;
+    const maxEdge = Math.max(1, Math.round(Math.max(width, height) * this.screenshotScale));
     const ctrl = getController();
     if (typeof ctrl.resizeScreenshotForModel !== 'function') return image;
     return await Promise.race([
@@ -2418,9 +2531,32 @@ export class AgentToolkit {
   }
 
   private rememberObservedRefs(serializedTree: string): void {
-    this.observedRefTargets.clear();
+    const observation = this.currentUiObservation;
+    if (!observation) return;
     for (const target of parseObservedRefTargets(serializedTree)) {
-      this.observedRefTargets.set(target.ref, { ...target, source: 'accessibility' });
+      observation.refs.set(target.ref, { ...target, source: 'accessibility' });
+    }
+  }
+
+  private rememberAccessibilityRefDetails(details: Array<Record<string, unknown>>): void {
+    const observation = this.currentUiObservation;
+    if (!observation) return;
+    for (const detail of details) {
+      const ref = typeof detail.ref === 'string' ? detail.ref : '';
+      const bounds = validBounds(detail.bounds);
+      if (!ref || !bounds) continue;
+      const label = typeof detail.text === 'string' && detail.text.trim()
+        ? detail.text.trim()
+        : typeof detail.contentDescription === 'string' && detail.contentDescription.trim()
+          ? detail.contentDescription.trim()
+          : null;
+      observation.refs.set(ref, {
+        ref,
+        bounds,
+        label,
+        resourceId: typeof detail.resourceId === 'string' ? detail.resourceId : null,
+        source: 'accessibility',
+      });
     }
   }
 
@@ -2431,6 +2567,8 @@ export class AgentToolkit {
     imageHeight?: number,
   ): void {
     if (!imageWidth || !imageHeight) return;
+    const observation = this.currentUiObservation;
+    if (!observation || observation.id !== observationId || observation.kind !== 'shot') return;
     for (const element of elements) {
       const bounds = {
         left: Math.round((element.bounds.left / 1000) * imageWidth),
@@ -2438,7 +2576,7 @@ export class AgentToolkit {
         right: Math.round((element.bounds.right / 1000) * imageWidth),
         bottom: Math.round((element.bounds.bottom / 1000) * imageHeight),
       };
-      this.observedRefTargets.set(element.ref, {
+      observation.refs.set(element.ref, {
         ref: element.ref,
         bounds,
         label: element.text,
@@ -2460,22 +2598,18 @@ export class AgentToolkit {
     height?: number,
   ): string {
     const observationId = explicitId ?? `tree_${(++this.treeObservationSequence).toString(36)}`;
-    this.activeUiObservations.set(observationId, {
+    this.currentUiObservation = {
+      id: observationId,
       kind,
       ...(width !== undefined ? { width } : {}),
       ...(height !== undefined ? { height } : {}),
-    });
-    while (this.activeUiObservations.size > 16) {
-      const oldest = this.activeUiObservations.keys().next().value;
-      if (typeof oldest !== 'string') break;
-      this.activeUiObservations.delete(oldest);
-    }
+      refs: new Map(),
+    };
     return observationId;
   }
 
   private invalidateUiObservations(): void {
-    this.activeUiObservations.clear();
-    this.observedRefTargets.clear();
+    this.currentUiObservation = null;
   }
 
   /** Capture one post-action evidence frame when no comparable fast baseline exists. */
@@ -3131,6 +3265,14 @@ type CachedObservedRefTarget = ObservedRefTarget & (
       center: { x: number; y: number };
     }
 );
+
+interface CurrentUiObservation {
+  id: string;
+  kind: 'tree' | 'shot';
+  width?: number;
+  height?: number;
+  refs: Map<string, CachedObservedRefTarget>;
+}
 
 /** Parse ref metadata used only to make loop fingerprints stable across observations. */
 export function parseObservedRefTargets(serializedTree: string): ObservedRefTarget[] {

@@ -12,6 +12,7 @@ import {
   type PortableSkill,
 } from './skillStore';
 import {
+  DEFAULT_SCREENSHOT_SCALE,
   getSettings,
   saveSettings,
   type CloudModelProfile,
@@ -23,7 +24,6 @@ const CONFIGURATION_VERSION = 1;
 
 const GENERAL_SETTING_KEYS = [
   'maxSteps',
-  'settleMs',
   'nodeTargetGestureTapEnabled',
   'enableThinking',
   'retryOnError',
@@ -36,9 +36,9 @@ const GENERAL_SETTING_KEYS = [
   'maxConversationHistoryTurns',
   'maxStoredSessions',
   'maxScreenLength',
-  'forceVisualMode',
   'screenshotNodeMarkersEnabled',
   'screenshotDownscalingEnabled',
+  'screenshotScale',
   'ocrEnhancementEnabled',
   'keepScreenshots',
   'customInstructions',
@@ -90,7 +90,6 @@ export type ParseConfigurationResult =
 
 const NUMBER_RANGES: Partial<Record<keyof Settings, readonly [number, number]>> = {
   maxSteps: [MIN_AGENT_STEPS, MAX_AGENT_STEPS],
-  settleMs: [100, 2000],
   retryOnError: [0, 3],
   maxSubTasks: [1, 20],
   timeoutSecs: [0, 300],
@@ -99,10 +98,11 @@ const NUMBER_RANGES: Partial<Record<keyof Settings, readonly [number, number]>> 
   maxConversationHistoryTurns: [0, 50],
   maxStoredSessions: [10, 200],
   maxScreenLength: [0, 20000],
+  screenshotScale: [0.5, 1],
 };
 
 function pickSettings<K extends keyof Settings>(
-  settings: Settings,
+  settings: Pick<Settings, K>,
   keys: readonly K[],
 ): Pick<Settings, K> {
   return Object.fromEntries(keys.map((key) => [key, settings[key]])) as Pick<Settings, K>;
@@ -147,12 +147,23 @@ function validateGeneralSettings(value: unknown): value is PortableGeneralSettin
     if (typeof imported !== typeof expected) return false;
     if (typeof imported === 'number') {
       const range = NUMBER_RANGES[key];
-      if (!Number.isInteger(imported) || (range && (imported < range[0] || imported > range[1]))) {
+      const integerRequired = key !== 'screenshotScale';
+      if ((integerRequired && !Number.isInteger(imported)) ||
+          (range && (imported < range[0] || imported > range[1]))) {
         return false;
       }
     }
   }
   return true;
+}
+
+function normalizeImportedGeneralSettings(value: unknown): unknown {
+  if (!isPlainObject(value) || value.screenshotScale !== undefined) return value;
+  if (typeof value.screenshotDownscalingEnabled !== 'boolean') return value;
+  return {
+    ...value,
+    screenshotScale: value.screenshotDownscalingEnabled ? DEFAULT_SCREENSHOT_SCALE : 1,
+  };
 }
 
 function validateModelSettings(value: unknown): value is PortableModelSettings {
@@ -219,7 +230,8 @@ export function parseConfigurationImport(content: string): ParseConfigurationRes
   if (parsed.version !== CONFIGURATION_VERSION) {
     return { ok: false, error: 'unsupported_version' };
   }
-  if (!validateGeneralSettings(parsed.generalSettings) || !validateModelSettings(parsed.modelSettings)) {
+  const generalSettings = normalizeImportedGeneralSettings(parsed.generalSettings);
+  if (!validateGeneralSettings(generalSettings) || !validateModelSettings(parsed.modelSettings)) {
     return { ok: false, error: 'invalid_settings' };
   }
   const skills = parsePortableSkills(parsed.skills);
@@ -236,8 +248,8 @@ export function parseConfigurationImport(content: string): ParseConfigurationRes
         format: CONFIGURATION_FORMAT,
         version: CONFIGURATION_VERSION,
         exportedAt: typeof parsed.exportedAt === 'string' ? parsed.exportedAt : '',
-        generalSettings: parsed.generalSettings,
-        modelSettings: parsed.modelSettings,
+        generalSettings: pickSettings(generalSettings, GENERAL_SETTING_KEYS),
+        modelSettings: pickSettings(parsed.modelSettings, MODEL_SETTING_KEYS),
         skills: skills.skills,
         favorites,
       },

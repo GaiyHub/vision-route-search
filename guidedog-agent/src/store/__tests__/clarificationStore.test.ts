@@ -41,3 +41,12 @@ test('a new request cancels the previous pending request', async () => {
   cancelUserClarification();
   await expect(second).resolves.toEqual({ answered: false, cancelled: true });
 });
+
+test('reports a bounded wait as timed out without inventing an answer', async () => {
+  jest.useFakeTimers();
+  const result = requestUserClarification({ question: '请输入验证码', timeoutMs: 60_000 });
+  jest.advanceTimersByTime(60_000);
+  await expect(result).resolves.toEqual({ answered: false, timedOut: true });
+  expect(submitUserClarification('123456')).toEqual({ ok: false, error: 'not_pending' });
+  jest.useRealTimers();
+});

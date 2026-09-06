@@ -264,7 +264,8 @@ describe('explicit atomic tap modes', () => {
     });
     expect(mockCtrl.tapByQueryGesture).toHaveBeenCalledWith('', '搜索', '', 0);
     expect(mockCtrl.tapByQuery).not.toHaveBeenCalled();
-    expect(result).toMatchObject({ ok: true, data: { dispatched: true, effect: 'unknown', mode: 'content_description' } });
+    expect(result).toMatchObject({ ok: true, data: { dispatched: true, mode: 'content_description' } });
+    expect(result).not.toHaveProperty('data.effect');
   });
 
   it('keeps the former action-first fallback chain when center gestures are disabled', async () => {
@@ -321,7 +322,8 @@ describe('explicit atomic tap modes', () => {
     });
     expect(mockCtrl.tapByRefGesture).toHaveBeenCalledWith('u1');
     expect(mockCtrl.tapByRef).not.toHaveBeenCalled();
-    expect(result).toMatchObject({ ok: true, data: { dispatched: true, effect: 'unknown', mode: 'ref' } });
+    expect(result).toMatchObject({ ok: true, data: { dispatched: true, mode: 'ref' } });
+    expect(result).not.toHaveProperty('data.effect');
   });
 
   it('keeps ref action-first fallback when center gestures are disabled', async () => {
@@ -381,8 +383,9 @@ describe('explicit atomic tap modes', () => {
     expect(mockCtrl.tapByQuery).toHaveBeenCalledWith('', '搜索', '', 0);
     expect(result).toMatchObject({
       ok: true,
-      data: { dispatched: true, effect: 'unknown', mode: 'content_description' },
+      data: { dispatched: true, mode: 'content_description' },
     });
+    expect(result).not.toHaveProperty('data.effect');
   });
 
   it('uses the same automatic ref dispatch when screenshot markers are disabled', async () => {
@@ -446,6 +449,7 @@ describe('explicit atomic tap modes', () => {
         physicalY: 800,
       },
     });
+    expect(first).not.toHaveProperty('data.effect');
     expect(mockCtrl.tap).toHaveBeenCalledWith(1079, 800);
 
     const stale = await toolkit.execute({
@@ -458,6 +462,25 @@ describe('explicit atomic tap modes', () => {
       },
     });
     expect(stale).toMatchObject({ ok: false, code: 'STALE_UI_OBSERVATION' });
+    expect(mockCtrl.tap).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps only the latest screenshot observation available for coordinate actions', async () => {
+    const toolkit = makeToolkit();
+    await toolkit.execute({ name: 'ui_screenshot', arguments: {} });
+    await toolkit.execute({ name: 'ui_screenshot', arguments: {} });
+
+    const stale = await toolkit.execute({
+      name: 'ui_tap',
+      arguments: { mode: 'coordinate', x: 500, y: 500, observationId: 'shot_1' },
+    });
+    expect(stale).toMatchObject({ ok: false, code: 'STALE_UI_OBSERVATION' });
+
+    const current = await toolkit.execute({
+      name: 'ui_tap',
+      arguments: { mode: 'coordinate', x: 500, y: 500, observationId: 'shot_2' },
+    });
+    expect(current).toMatchObject({ ok: true, data: { observationId: 'shot_2' } });
     expect(mockCtrl.tap).toHaveBeenCalledTimes(1);
   });
 
@@ -530,15 +553,17 @@ describe('explicit atomic tap modes', () => {
 describe('compound ui_fill', () => {
   beforeEach(() => jest.clearAllMocks());
 
-  it('exposes focused, ref and semantic input targets', () => {
+  it('exposes only explicit ref and current-focus targets', () => {
     const fill = PHONE_TOOLS.find((tool) => tool.name === 'ui_fill')!;
     expect(fill.parameters.required).toEqual(['mode', 'value']);
-    expect(fill.parameters.properties.mode.enum).toEqual([
-      'focused', 'ref', 'text', 'content_description', 'resource_id',
-    ]);
+    expect(fill.parameters.properties.mode.enum).toEqual(['ref', 'focused']);
+    expect(fill.parameters.properties).not.toHaveProperty('targetText');
+    expect(fill.parameters.properties).not.toHaveProperty('contentDescription');
+    expect(fill.parameters.properties).not.toHaveProperty('resourceId');
+    expect(fill.parameters.properties).not.toHaveProperty('matchIndex');
   });
 
-  it('fills a semantic target directly without opening the keyboard and optionally submits', async () => {
+  it('keeps historical semantic calls executable without exposing them to the model', async () => {
     mockCtrl.findAccessibilityNodes.mockResolvedValueOnce({
       nodes: [{
         ref: 'uinput',
@@ -577,6 +602,27 @@ describe('compound ui_fill', () => {
         ref: 'uinput',
         valueLength: 6,
       },
+    });
+  });
+
+  it('reports when focused mode has no focused editable node', async () => {
+    mockCtrl.getAccessibilityTree.mockResolvedValueOnce([{
+      ref: 'uinput',
+      text: '',
+      isEditable: true,
+      isFocused: false,
+      children: [],
+    }]);
+    const result = await makeToolkit().execute({
+      name: 'ui_fill',
+      arguments: { mode: 'focused', value: '123' },
+    });
+
+    expect(mockCtrl.tapByRefGesture).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      ok: false,
+      code: 'NO_FOCUSED_EDITABLE',
+      error: '当前没有已聚焦的可编辑输入框',
     });
   });
 
@@ -917,7 +963,7 @@ describe('screenshot node markers', () => {
     });
   });
 
-  it('downscales only the model copy and keeps physical dimensions for coordinate taps', async () => {
+  it('scales only the model copy and keeps physical dimensions for coordinate taps', async () => {
     mockCtrl.resizeScreenshotForModel.mockResolvedValueOnce({
       path: '/tmp/model-900x2000.jpg',
       base64: 'resized',
@@ -934,7 +980,7 @@ describe('screenshot node markers', () => {
       }),
     }, {
       screenshotNodeMarkersEnabled: false,
-      screenshotDownscalingEnabled: true,
+      screenshotScale: 0.625,
     });
 
     const screenshot = await toolkit.execute({ name: 'ui_screenshot', arguments: {} });
@@ -970,7 +1016,7 @@ describe('screenshot node markers', () => {
       onTimingDiagnostic: (event) => timing.push(event),
     }, {
       screenshotNodeMarkersEnabled: false,
-      screenshotDownscalingEnabled: true,
+      screenshotScale: 0.6,
       ocrEnhancementEnabled: true,
     });
 
@@ -992,8 +1038,8 @@ describe('screenshot node markers', () => {
     expect(timing.every((event) => !JSON.stringify(event).includes('private-image'))).toBe(true);
   });
 
-  it('does not downscale the model screenshot when the switch is disabled', async () => {
-    const toolkit = makeToolkit({ screenshotDownscalingEnabled: false });
+  it('does not resize the model screenshot at scale 1', async () => {
+    const toolkit = makeToolkit({ screenshotScale: 1 });
 
     const screenshot = await toolkit.execute({ name: 'ui_screenshot', arguments: {} });
 
@@ -1071,6 +1117,7 @@ describe('screenshot node markers', () => {
         observationId: 'shot_1',
       },
     });
+    expect(tapResult).not.toHaveProperty('data.effect');
     const staleTap = await toolkit.execute({
       name: 'ui_tap',
       arguments: { mode: 'ref', ref: 'ocr_2' },

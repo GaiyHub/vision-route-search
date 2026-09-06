@@ -1,4 +1,7 @@
-import { PREVIOUS_AGENT_SYSTEM_PROMPT } from './previousAgentSystemPrompt';
+import {
+  HISTORICAL_AGENT_SYSTEM_PROMPT_VERSIONS,
+  type AgentSystemPromptVersion,
+} from './agentSystemPromptVersions';
 
 /** Static system prompt shared by every main-agent request. */
 export const AGENT_SYSTEM_PROMPT = `你是豆泡，一款运行在 Android 设备上的能力完备的通用 AI 助手。你可以使用 Shell、手机系统与 UI 操作能力、内置浏览器及其他已提供的工具，帮助用户回答问题或完成明确目标。
@@ -21,10 +24,12 @@ export const AGENT_SYSTEM_PROMPT = `你是豆泡，一款运行在 Android 设�
 3. 涉及实时、动态、当前运行环境事实或现实对象可用性的判断，必须先执行合适工具取得真实结果，不得凭模型记忆。
 4. 工具返回成功通常只表示调用已被执行，不代表用户目标已经达成；必须结合返回数据或后续状态验证实际效果。
 5. shell_execute 不提供 Android 原生 Shell。不得调用 adb、am、pm、cmd、getprop、settings 等 Android 原生命令，也不得假定 /system/bin 中的命令可执行。需要使用 Shell 或 Android 宿主能力时，先通过 shell_execute 执行 shell-help，再仅使用其列出的命令；需要参数说明时执行对应命令的 --help。
+6. 当本轮能够完整写出多个工具调用的实际参数，且后续状态变更操作不依赖前序返回内容时，使用 execute_tools；否则只执行到第一个必须读取结果的调用为止。
+7. execute_tools 不可用或被禁用时，退回逐个调用原子工具。不要用一次响应中的 provider 原生多个 tool calls 代替 execute_tools。
 
 ## UI 操作规范
 
-1. 观察当前界面时，根据当前步骤所需信息选择工具：文字、内容描述、控件状态、ref 或边界足以支持下一步时，使用 ui_inspect；所需信息依赖颜色、图标、图片、自定义绘制内容、视觉样式或坐标定位，或者 ui_inspect 未提供必要信息时，使用 ui_screenshot。
+1. 观察当前界面时，选择能够为下一步提供充分证据且成本更低的工具。通常优先使用 \`ui_inspect\`；若任务明确依赖视觉信息，或 \`ui_inspect\` 返回的结构信息不足以支持可靠决策，则使用 \`ui_screenshot\`。
 2. 优先使用当前可验证的稳定标识定位目标；不得凭记忆编造 nodeId、ref、selector 或坐标。
 3. UI 操作后，如果下一步依赖该操作的实际效果，必须通过新的界面观察、控件状态、前台应用或明确返回数据验证结果。accepted=true、dispatched=true 或 effect=unknown 均不能证明页面已变化；在验证完成前，不得声称已进入新页面，也不得执行依赖新页面的填写、选择或提交操作。
 
@@ -47,9 +52,29 @@ export const AGENT_SYSTEM_PROMPT = `你是豆泡，一款运行在 Android 设�
 
 可按正常流程执行，但仍应保证操作与用户目标直接相关，优先选择合理、可验证、可恢复的方式，并在结果不明确时进行验证。`;
 
-/** Exactly one rollback snapshot; it is never sent to the model. */
-export const AGENT_SYSTEM_PROMPT_HISTORY = Object.freeze([
-  PREVIOUS_AGENT_SYSTEM_PROMPT,
+/** Version of the prompt currently sent to the model. */
+export const AGENT_SYSTEM_PROMPT_VERSION = 7;
+
+export const CURRENT_AGENT_SYSTEM_PROMPT_VERSION: AgentSystemPromptVersion = Object.freeze({
+  version: AGENT_SYSTEM_PROMPT_VERSION,
+  createdAt: '2026-09-06',
+  changeSummary: '将 execute_tools 示例收敛到工具描述，系统提示词仅保留编排策略。',
+  prompt: AGENT_SYSTEM_PROMPT,
+});
+
+/** Historical versions only, kept for compatibility with existing consumers. */
+export const AGENT_SYSTEM_PROMPT_HISTORY = HISTORICAL_AGENT_SYSTEM_PROMPT_VERSIONS;
+
+/** Complete ordered registry, including the current production version. */
+export const AGENT_SYSTEM_PROMPT_VERSIONS: readonly AgentSystemPromptVersion[] = Object.freeze([
+  ...HISTORICAL_AGENT_SYSTEM_PROMPT_VERSIONS,
+  CURRENT_AGENT_SYSTEM_PROMPT_VERSION,
 ]);
 
-export { PREVIOUS_AGENT_SYSTEM_PROMPT };
+export function getAgentSystemPromptVersion(
+  version: number,
+): AgentSystemPromptVersion | undefined {
+  return AGENT_SYSTEM_PROMPT_VERSIONS.find((entry) => entry.version === version);
+}
+
+export type { AgentSystemPromptVersion } from './agentSystemPromptVersions';

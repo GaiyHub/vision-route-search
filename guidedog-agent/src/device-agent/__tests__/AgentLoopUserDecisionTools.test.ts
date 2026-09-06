@@ -92,7 +92,6 @@ describe('user-decision tool execution (blocking gate)', () => {
     const loop = new AgentLoop({
       provider,
       maxSteps: 5,
-      settleMs: 0,
       delayFn: fastDelay,
       extraTools: [{ tool: confirmTool, handler }],
     });
@@ -118,7 +117,6 @@ describe('user-decision tool execution (blocking gate)', () => {
     const loop = new AgentLoop({
       provider,
       maxSteps: 5,
-      settleMs: 0,
       delayFn: fastDelay,
       extraTools: [{ tool: askUserTool, handler }],
     });
@@ -154,7 +152,6 @@ describe('user-decision tool execution (blocking gate)', () => {
     const loop = new AgentLoop({
       provider,
       maxSteps: 5,
-      settleMs: 0,
       delayFn: fastDelay,
       extraTools: [{ tool: dummyTool, handler }],
     });
@@ -176,7 +173,6 @@ describe('user-decision tool execution (blocking gate)', () => {
     const loop = new AgentLoop({
       provider,
       maxSteps: 5,
-      settleMs: 0,
       delayFn: fastDelay,
       extraTools: [{ tool: confirmTool, handler }],
     });
@@ -206,7 +202,6 @@ describe('user-decision tool execution (blocking gate)', () => {
     const loop = new AgentLoop({
       provider,
       maxSteps: 5,
-      settleMs: 0,
       delayFn: fastDelay,
       extraTools: [{ tool: askUserTool, handler }],
     });

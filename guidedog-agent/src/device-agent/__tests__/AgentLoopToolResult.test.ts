@@ -176,7 +176,6 @@ describe('tool-result rendering in the prompt', () => {
     await collectEvents(new AgentLoop({
       provider,
       maxSteps: 3,
-      settleMs: 0,
       onTimingDiagnostic: (event) => timing.push(event),
     }));
 
@@ -194,7 +193,7 @@ describe('tool-result rendering in the prompt', () => {
     // A stale nodeId that is not in the mocked (empty) accessibility tree.
     const tapCall = '{"name": "ui_tap", "arguments": {"nodeId": "1:stale"}}';
     const { provider, messagesList } = makeProvider([tapCall, taskComplete]);
-    const loop = new AgentLoop({ provider, maxSteps: 3, settleMs: 0 });
+    const loop = new AgentLoop({ provider, maxSteps: 3 });
     await collectEvents(loop);
 
     // The assistant contains only tool_use; the following user turn carries
@@ -212,7 +211,7 @@ describe('tool-result rendering in the prompt', () => {
     mockCtrl.getAccessibilityTree.mockResolvedValue([]);
     const tapCall = '{"name":"ui_tap","arguments":{"nodeId":"1:stale","x":640,"y":200}}';
     const { provider, messagesList } = makeProvider([tapCall, taskComplete]);
-    await collectEvents(new AgentLoop({ provider, maxSteps: 3, settleMs: 0 }));
+    await collectEvents(new AgentLoop({ provider, maxSteps: 3 }));
 
     expect(mockCtrl.tap).not.toHaveBeenCalled();
     expect(mockCtrl.tapNode).not.toHaveBeenCalled();
@@ -235,7 +234,7 @@ describe('tool-result rendering in the prompt', () => {
 
     const tapCall = '{"name":"ui_tap","arguments":{"nodeId":"1:com.test:id/card","x":640,"y":200}}';
     const { provider, messagesList } = makeProvider([tapCall, taskComplete]);
-    await collectEvents(new AgentLoop({ provider, maxSteps: 3, settleMs: 0 }));
+    await collectEvents(new AgentLoop({ provider, maxSteps: 3 }));
 
     expect(mockCtrl.tap).not.toHaveBeenCalled();
     expect(mockCtrl.tapNode).not.toHaveBeenCalled();
@@ -257,7 +256,7 @@ describe('tool-result rendering in the prompt', () => {
     }]);
     const tapCall = '{"name":"ui_tap","arguments":{"nodeId":"1:com.test:id/root","x":400,"y":180}}';
     const { provider, messagesList } = makeProvider([tapCall, taskComplete]);
-    await collectEvents(new AgentLoop({ provider, maxSteps: 3, settleMs: 0 }));
+    await collectEvents(new AgentLoop({ provider, maxSteps: 3 }));
 
     expect(mockCtrl.tap).not.toHaveBeenCalled();
     expect(mockCtrl.tapNode).not.toHaveBeenCalled();
@@ -272,7 +271,7 @@ describe('tool-result rendering in the prompt', () => {
   test.skip('tap without valid arguments explains what is missing', async () => {
     const tapCall = '{"name": "ui_tap", "arguments": {}}';
     const { provider, messagesList } = makeProvider([tapCall, taskComplete]);
-    const loop = new AgentLoop({ provider, maxSteps: 3, settleMs: 0 });
+    const loop = new AgentLoop({ provider, maxSteps: 3 });
     await collectEvents(loop);
 
     const secondUser = messagesList[1].find((m) => m.role === 'user' && m.content.includes('<tool_result'));
@@ -283,7 +282,7 @@ describe('tool-result rendering in the prompt', () => {
   test.skip('find_node explains that an empty match only applies to the current accessibility tree', async () => {
     const findCall = '{"name": "ui_find_node", "arguments": {"className": "android.widget.Button"}}';
     const { provider, messagesList } = makeProvider([findCall, taskComplete]);
-    const loop = new AgentLoop({ provider, maxSteps: 3, settleMs: 0 });
+    const loop = new AgentLoop({ provider, maxSteps: 3 });
     await collectEvents(loop);
 
     // The empty mock tree yields a scoped no-match result rather than a bare null.
@@ -310,7 +309,7 @@ describe('tool-result rendering in the prompt', () => {
     ]);
     const findCall = '{"name":"ui_find_node","arguments":{"text":"搜索"}}';
     const { provider, messagesList } = makeProvider([findCall, taskComplete]);
-    await collectEvents(new AgentLoop({ provider, maxSteps: 3, settleMs: 0 }));
+    await collectEvents(new AgentLoop({ provider, maxSteps: 3 }));
 
     const result = messagesList[1].find(
       (m) => m.role === 'user' && m.content.includes('<tool_result'),
@@ -325,7 +324,7 @@ describe('tool-result rendering in the prompt', () => {
   test.skip('explicit UI inspection is returned only as a tool result', async () => {
     const inspectUi = '{"name":"ui_inspect","arguments":{}}';
     const { provider, messagesList } = makeProvider([inspectUi, taskComplete]);
-    const loop = new AgentLoop({ provider, maxSteps: 2, settleMs: 0 });
+    const loop = new AgentLoop({ provider, maxSteps: 2 });
     await collectEvents(loop);
 
     const secondUser = messagesList[1].find((m) => m.role === 'user' && m.content.includes('<tool_result'));
@@ -354,7 +353,7 @@ describe('tool-result rendering in the prompt', () => {
 
     const tapCall = '{"name": "ui_tap", "arguments": {"nodeId": "2"}}';
     const { provider } = makeProvider([tapCall, taskComplete]);
-    const loop = new AgentLoop({ provider, maxSteps: 3, settleMs: 0 });
+    const loop = new AgentLoop({ provider, maxSteps: 3 });
     await collectEvents(loop);
 
     // Element #2 has no nodeId → tap its center coordinates directly.
@@ -376,7 +375,7 @@ describe('tool-result rendering in the prompt', () => {
 
     const tapCall = '{"name":"ui_tap","arguments":{"nodeId":"1","x":640,"y":200}}';
     const { provider } = makeProvider([tapCall, taskComplete]);
-    await collectEvents(new AgentLoop({ provider, maxSteps: 3, settleMs: 0 }));
+    await collectEvents(new AgentLoop({ provider, maxSteps: 3 }));
 
     expect(mockCtrl.tap).toHaveBeenCalledTimes(1);
     expect(mockCtrl.tap).toHaveBeenCalledWith(640, 200);
@@ -397,7 +396,7 @@ describe('tool-result rendering in the prompt', () => {
     })]);
     const tapCall = '{"name":"ui_tap","arguments":{"nodeId":"1","x":1200,"y":200}}';
     const { provider, messagesList } = makeProvider([tapCall, taskComplete]);
-    await collectEvents(new AgentLoop({ provider, maxSteps: 3, settleMs: 0 }));
+    await collectEvents(new AgentLoop({ provider, maxSteps: 3 }));
 
     expect(mockCtrl.tap).not.toHaveBeenCalled();
     expect(mockCtrl.tapNodeAt).not.toHaveBeenCalled();
@@ -412,7 +411,7 @@ describe('tool-result rendering in the prompt', () => {
   test.skip('numeric nodeId beyond the list explains the current size', async () => {
     const tapCall = '{"name": "ui_tap", "arguments": {"nodeId": "99"}}';
     const { provider, messagesList } = makeProvider([tapCall, taskComplete]);
-    const loop = new AgentLoop({ provider, maxSteps: 3, settleMs: 0 });
+    const loop = new AgentLoop({ provider, maxSteps: 3 });
     await collectEvents(loop);
 
     const secondUser = messagesList[1].find((m) => m.role === 'user' && m.content.includes('<tool_result'));
@@ -440,7 +439,7 @@ describe('tool-result rendering in the prompt', () => {
 
     const tapCall = '{"name": "ui_tap", "arguments": {"nodeId": "1:com.test:id/btn"}}';
     const { provider, messagesList } = makeProvider([tapCall, taskComplete]);
-    const loop = new AgentLoop({ provider, maxSteps: 3, settleMs: 0 });
+    const loop = new AgentLoop({ provider, maxSteps: 3 });
     await collectEvents(loop);
 
     expect(mockCtrl.tapNode).toHaveBeenCalledWith('1:com.test:id/btn');
@@ -475,7 +474,7 @@ describe('tool-result rendering in the prompt', () => {
 
     const tapCall = '{"name":"ui_tap","arguments":{"contentDescription":"搜索"}}';
     const { provider, messagesList } = makeProvider([tapCall, taskComplete]);
-    await collectEvents(new AgentLoop({ provider, maxSteps: 3, settleMs: 0 }));
+    await collectEvents(new AgentLoop({ provider, maxSteps: 3 }));
 
     expect(mockCtrl.tapByQuery).toHaveBeenCalledWith('', '搜索', '', 0);
     expect(mockCtrl.getAccessibilityTree).not.toHaveBeenCalled();
@@ -496,7 +495,7 @@ describe('tool-result rendering in the prompt', () => {
   test.skip('semantic tap reports a native no-match without guessing coordinates', async () => {
     const tapCall = '{"name":"ui_tap","arguments":{"text":"不存在的目标"}}';
     const { provider, messagesList } = makeProvider([tapCall, taskComplete]);
-    await collectEvents(new AgentLoop({ provider, maxSteps: 3, settleMs: 0 }));
+    await collectEvents(new AgentLoop({ provider, maxSteps: 3 }));
 
     expect(mockCtrl.tapByQuery).toHaveBeenCalledWith('不存在的目标', '', '', 0);
     expect(mockCtrl.tap).not.toHaveBeenCalled();
@@ -519,7 +518,7 @@ describe('tool-result rendering in the prompt', () => {
 
     const tapCall = '{"name":"ui_tap","arguments":{"nodeId":"1","x":640,"y":200}}';
     const { provider } = makeProvider([tapCall, taskComplete]);
-    await collectEvents(new AgentLoop({ provider, maxSteps: 3, settleMs: 0 }));
+    await collectEvents(new AgentLoop({ provider, maxSteps: 3 }));
 
     expect(mockCtrl.suspendOverlayForAutomation).toHaveBeenCalledTimes(1);
     expect(mockCtrl.resumeOverlayAfterAutomation).toHaveBeenCalledTimes(1);
@@ -541,7 +540,7 @@ describe('tool-result rendering in the prompt', () => {
 
     const tapCall = `{"name":"ui_tap","arguments":{"nodeId":"${sharedId}","x":720,"y":620}}`;
     const { provider, messagesList } = makeProvider([tapCall, taskComplete]);
-    await collectEvents(new AgentLoop({ provider, maxSteps: 3, settleMs: 0 }));
+    await collectEvents(new AgentLoop({ provider, maxSteps: 3 }));
 
     expect(mockCtrl.tapNodeAt).toHaveBeenCalledWith(sharedId, 720, 620);
     expect(mockCtrl.tap).not.toHaveBeenCalled();
@@ -565,7 +564,7 @@ describe('tool-result rendering in the prompt', () => {
 
     const tapCall = `{"name":"ui_tap","arguments":{"nodeId":"${nodeId}","x":720,"y":2710}}`;
     const { provider, messagesList } = makeProvider([tapCall, taskComplete]);
-    await collectEvents(new AgentLoop({ provider, maxSteps: 3, settleMs: 0 }));
+    await collectEvents(new AgentLoop({ provider, maxSteps: 3 }));
 
     expect(mockCtrl.tap).not.toHaveBeenCalled();
     const result = messagesList[1].find(
@@ -597,7 +596,7 @@ describe('tool-result rendering in the prompt', () => {
 
     const tapCall = `{"name":"ui_tap","arguments":{"nodeId":"${nodeId}","x":1121,"y":162}}`;
     const { provider, messagesList } = makeProvider([tapCall, taskComplete]);
-    await collectEvents(new AgentLoop({ provider, maxSteps: 3, settleMs: 0 }));
+    await collectEvents(new AgentLoop({ provider, maxSteps: 3 }));
 
     expect(mockCtrl.tapNodeAt).toHaveBeenCalledTimes(1);
     expect(mockCtrl.tap).not.toHaveBeenCalled();
@@ -627,7 +626,7 @@ describe('tool-result rendering in the prompt', () => {
 
     const tapCall = `{"name":"ui_tap","arguments":{"nodeId":"${nodeId}","x":500,"y":510}}`;
     const { provider, messagesList } = makeProvider([tapCall, taskComplete]);
-    await collectEvents(new AgentLoop({ provider, maxSteps: 3, settleMs: 0 }));
+    await collectEvents(new AgentLoop({ provider, maxSteps: 3 }));
 
     expect(mockCtrl.tapNodeAt).toHaveBeenCalledTimes(1);
     expect(mockCtrl.tap).not.toHaveBeenCalled();
@@ -654,7 +653,7 @@ describe('tool-result rendering in the prompt', () => {
     ]);
     const tapCall = `{"name":"ui_tap","arguments":{"nodeId":"${sharedId}"}}`;
     const { provider, messagesList } = makeProvider([tapCall, taskComplete]);
-    await collectEvents(new AgentLoop({ provider, maxSteps: 3, settleMs: 0 }));
+    await collectEvents(new AgentLoop({ provider, maxSteps: 3 }));
 
     const result = messagesList[1].find(
       (m) => m.role === 'user' && m.content.includes('<tool_result'),
@@ -678,7 +677,7 @@ describe('tool-result rendering in the prompt', () => {
     mockCtrl.tapNodeAt.mockResolvedValue(true);
     const tapCall = `{"name":"ui_tap","arguments":{"nodeId":"${sharedId}","x":540,"y":2900}}`;
     const { provider, messagesList } = makeProvider([tapCall, taskComplete]);
-    await collectEvents(new AgentLoop({ provider, maxSteps: 3, settleMs: 0 }));
+    await collectEvents(new AgentLoop({ provider, maxSteps: 3 }));
 
     expect(mockCtrl.tapNodeAt).toHaveBeenCalledWith(sharedId, 540, 2900);
     expect(mockCtrl.tapNode).not.toHaveBeenCalled();
@@ -698,7 +697,6 @@ describe('tool-result rendering in the prompt', () => {
     await collectEvents(new AgentLoop({
       provider,
       maxSteps: 3,
-      settleMs: 0,
     }));
 
     const result = messagesList[1].find(
@@ -721,7 +719,7 @@ describe('tool-result rendering in the prompt', () => {
 
     const listCall = '{"name": "list_apps", "arguments": {}}';
     const { provider, messagesList } = makeProvider([listCall, taskComplete]);
-    const loop = new AgentLoop({ provider, maxSteps: 3, settleMs: 0 });
+    const loop = new AgentLoop({ provider, maxSteps: 3 });
     await collectEvents(loop);
 
     const secondAssistant = messagesList[1].find((m) => m.role === 'assistant');
@@ -742,7 +740,7 @@ describe('tool-result rendering in the prompt', () => {
       { name: 'ui_find_node', arguments: { text: '确认' } },
     ]);
     const { provider, messagesList } = makeProvider([batch, taskComplete]);
-    const loop = new AgentLoop({ provider, maxSteps: 3, settleMs: 0 });
+    const loop = new AgentLoop({ provider, maxSteps: 3 });
     await collectEvents(loop);
 
     const assistant = messagesList[1].find((m) => m.role === 'assistant')?.content ?? '';
@@ -770,7 +768,6 @@ describe('tool-result rendering in the prompt', () => {
     const loop = new AgentLoop({
       provider,
       maxSteps: 3,
-      settleMs: 0,
       extraTools: [{
         tool: secretTool,
         handler: async () => ({
@@ -796,7 +793,7 @@ describe('tool-result rendering in the prompt', () => {
       '{"name":"list_apps","arguments":{}}',
       taskComplete,
     ]);
-    const loop = new AgentLoop({ provider, maxSteps: 3, settleMs: 0 });
+    const loop = new AgentLoop({ provider, maxSteps: 3 });
     await collectEvents(loop);
     const result = messagesList[1].find(
       (m) => m.role === 'user' && m.content.includes('<tool_result'),
@@ -820,7 +817,6 @@ describe('tool-result rendering in the prompt', () => {
     const loop = new AgentLoop({
       provider,
       maxSteps: 3,
-      settleMs: 0,
       maxScreenLength: 100,
     });
 
@@ -846,7 +842,6 @@ describe('tool-result rendering in the prompt', () => {
     const loop = new AgentLoop({
       provider,
       maxSteps: 4,
-      settleMs: 0,
       extraTools: [{
         tool: {
           name: 'mutate_ui',
@@ -866,6 +861,38 @@ describe('tool-result rendering in the prompt', () => {
     expect(afterMutation).not.toContain('只属于旧界面的联系人列表');
   });
 
+  test('does not expose a stale transient tree after a later mutation in the same tool batch', async () => {
+    mockCtrl.getAccessibilityTree.mockResolvedValue(buttonNode({
+      text: '同轮动作前的旧页面',
+      nodeId: '1:app:id/pre_mutation',
+    }));
+    const batch = JSON.stringify([
+      { name: 'ui_inspect', arguments: {} },
+      { name: 'mutate_ui', arguments: {} },
+    ]);
+    const { provider, messagesList } = makeProvider([batch, taskComplete]);
+    const loop = new AgentLoop({
+      provider,
+      maxSteps: 3,
+      extraTools: [{
+        tool: {
+          name: 'mutate_ui',
+          description: 'test screen mutation',
+          uiEffect: 'change',
+          parameters: { type: 'object', properties: {} },
+        },
+        handler: async () => ({ ok: true, data: { dispatched: true } }),
+      }],
+    });
+
+    await collectEvents(loop);
+
+    const nextDecision = messagesList[1].map((message) => message.content).join('\n');
+    expect(nextDecision).not.toContain('<current_ui_observation');
+    expect(nextDecision).not.toContain('同轮动作前的旧页面');
+    expect(nextDecision).toContain('transientStructure');
+  });
+
   test('does not resend a consumed accessibility observation after a failed action', async () => {
     mockCtrl.getAccessibilityTree.mockResolvedValue(buttonNode({
       text: '失败动作后仍有效的联系人列表',
@@ -879,7 +906,6 @@ describe('tool-result rendering in the prompt', () => {
     const loop = new AgentLoop({
       provider,
       maxSteps: 4,
-      settleMs: 0,
       extraTools: [{
         tool: {
           name: 'mutate_ui',
@@ -909,7 +935,7 @@ describe('tool-result rendering in the prompt', () => {
       '{"name":"list_apps","arguments":{}}',
       taskComplete,
     ]);
-    const events = await collectEvents(new AgentLoop({ provider, maxSteps: 4, settleMs: 0 }));
+    const events = await collectEvents(new AgentLoop({ provider, maxSteps: 4 }));
 
     const immediate = messagesList[1];
     const immediateText = immediate.map((message) => message.content).join('\n');
@@ -955,7 +981,6 @@ describe('tool-result rendering in the prompt', () => {
     await collectEvents(new AgentLoop({
       provider,
       maxSteps: 3,
-      settleMs: 0,
       retryOnError: 1,
       requestTimeoutMs: 0,
     }));
@@ -969,7 +994,7 @@ describe('tool-result rendering in the prompt', () => {
   test('top-level click is rejected instead of being executed as tap', async () => {
     const clickCall = '{"name":"click","arguments":{"mode":"text","text":"按钮"}}';
     const { provider } = makeProvider([clickCall, taskComplete]);
-    const events = await collectEvents(new AgentLoop({ provider, maxSteps: 3, settleMs: 0 }));
+    const events = await collectEvents(new AgentLoop({ provider, maxSteps: 3 }));
 
     const clickEvent = events.find(
       (event): event is Extract<AgentEvent, { type: 'action' }> =>
@@ -1010,7 +1035,7 @@ describe('tool-result rendering in the prompt', () => {
         return responses[captured.length - 1];
       }),
     } as unknown as LLMProviderInterface;
-    const loop = new AgentLoop({ provider, maxSteps: 3, settleMs: 0 });
+    const loop = new AgentLoop({ provider, maxSteps: 3 });
     await collectEvents(loop);
 
     expect(provider.generateWithTools).not.toHaveBeenCalled();
@@ -1068,7 +1093,7 @@ describe('tool-result rendering in the prompt', () => {
       }),
     } as unknown as LLMProviderInterface;
 
-    const events = await collectEvents(new AgentLoop({ provider, maxSteps: 3, settleMs: 0 }));
+    const events = await collectEvents(new AgentLoop({ provider, maxSteps: 3 }));
     const malformedEvent = events.find(
       (event): event is Extract<AgentEvent, { type: 'action' }> =>
         event.type === 'action' && event.callId === 'bad_call',

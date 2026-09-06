@@ -28,11 +28,9 @@ export interface AgentOptions {
   onModelTrace?: (event: ModelTraceEvent) => void;
   /** Maximum number of observe-think-act cycles before giving up. Default: 20. */
   maxSteps?: number;
-  /** Milliseconds to wait between sequential UI-changing calls in one model response. Default: 500. */
-  settleMs?: number;
   /**
-   * Custom delay implementation used for every in-loop wait (inter-tool settle,
-   * stabilization polling, retry backoff, wait tool). Hosts can inject a
+   * Custom delay implementation used for explicit or tool-owned waits
+   * (stabilization polling, retry backoff, wait tool). Hosts can inject a
    * freeze-safe delay (e.g. a native alarm-driven wait) so the loop survives
    * OEM background freezing that kills JS setTimeout timers. Falls back to a
    * plain setTimeout when omitted.
@@ -111,12 +109,10 @@ export interface AgentOptions {
    * Default: false.
    */
   useVision?: boolean;
-  /** Restrict Android UI observation to visual screenshots only. */
-  forceVisualMode?: boolean;
   /** Overlay actionable accessibility refs on screenshots sent to the model. */
   screenshotNodeMarkersEnabled?: boolean;
-  /** Downscale screenshots sent to the model without changing physical coordinates. Default: true. */
-  screenshotDownscalingEnabled?: boolean;
+  /** Proportional scale for screenshots sent to the model. Range: 0.5–1.0. */
+  screenshotScale?: number;
   /** Allow ui_screenshot to run bundled OCR and expose OCR-derived refs. */
   ocrEnhancementEnabled?: boolean;
   /** Resolve node targets from live accessibility data, then tap by center gesture. */
@@ -235,7 +231,7 @@ export interface AgentOptions {
    * Set false to keep the complete available history without compression.
    */
   contextCompressionEnabled?: boolean;
-  /** LLM summary trigger as a percentage of the resolved context window. */
+  /** Staged compression trigger as a percentage of the resolved context window. */
   contextCompressionThresholdPercent?: number;
   /** Recent history and conversation rounds kept verbatim during compression. */
   contextCompressionProtectedRecentRounds?: number;

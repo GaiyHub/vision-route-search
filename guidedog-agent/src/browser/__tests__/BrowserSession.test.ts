@@ -106,6 +106,36 @@ describe('BrowserSessionController', () => {
     });
   });
 
+  it('rejects browser wait when no http(s) page is active', async () => {
+    const session = new BrowserSessionController();
+    const host = mockHost();
+    session.attach(host);
+
+    await expect(session.execute({ action: 'wait_for_dom_stable', timeout: 5_000 }))
+      .resolves.toMatchObject({
+        ok: false,
+        error: expect.stringContaining('仅适用于豆泡内置浏览器'),
+        hint: expect.stringContaining('Android App 内的 WebView'),
+      });
+    expect(host.evaluate).not.toHaveBeenCalled();
+    expect(host.show).not.toHaveBeenCalled();
+  });
+
+  it('allows browser wait for an active http(s) page', async () => {
+    const session = new BrowserSessionController();
+    const host = mockHost();
+    host.getMeta = () => ({ url: 'https://example.com/', title: 'Example', loading: false });
+    host.evaluate.mockResolvedValue({ readyState: 'complete', nodes: 1 });
+    session.attach(host);
+
+    await expect(session.execute({ action: 'wait_for_dom_stable', timeout: 5_000 }))
+      .resolves.toMatchObject({
+        ok: true,
+        data: { action: 'wait_for_dom_stable', pageURL: 'https://example.com/' },
+      });
+    expect(host.evaluate).toHaveBeenCalled();
+  });
+
   it('routes canonical actions to an explicit tab and supports tab management', async () => {
     const session = new BrowserSessionController();
     const host = mockHost();

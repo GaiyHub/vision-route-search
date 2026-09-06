@@ -11,6 +11,7 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import {
   Animated,
   FlatList,
@@ -408,7 +409,12 @@ function ActionList({ actions, expanded }: { actions: string[]; expanded: boolea
 function EmptyState() {
   return (
     <View style={styles.empty}>
-      <Text style={styles.emptyIcon}>📋</Text>
+      <Ionicons
+        name="clipboard-outline"
+        size={40}
+        color="#9CA3AF"
+        style={styles.emptyIcon}
+      />
       <Text style={styles.emptyHeadline}>还没有历史记录</Text>
       <Text style={styles.emptySubtext}>
         执行过任务后，记录会显示在这里。
@@ -420,7 +426,12 @@ function EmptyState() {
 function NoResultsState({ isFiltered }: { isFiltered: boolean }) {
   return (
     <View style={styles.empty}>
-      <Text style={styles.emptyIcon}>🔍</Text>
+      <Ionicons
+        name="search-outline"
+        size={40}
+        color="#9CA3AF"
+        style={styles.emptyIcon}
+      />
       <Text style={styles.emptyHeadline}>没有结果</Text>
       <Text style={styles.emptySubtext}>
         {isFiltered
@@ -724,7 +735,6 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   emptyIcon: {
-    fontSize: 40,
     marginBottom: 4,
   },
   emptyHeadline: {

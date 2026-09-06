@@ -31,6 +31,9 @@ export interface ContextPrepareResult {
   summaryMessage?: string;
   omittedCount: number;
   estimatedTokens: number;
+  estimatedTokensBeforeCompression: number;
+  estimatedTokensAfterOffload?: number;
+  estimatedTokensAfterSummary?: number;
   thresholdTokens: number;
   compacted: boolean;
   offloadedResults: number;
@@ -41,7 +44,7 @@ export interface ContextCompressionManagerOptions {
   enabled?: boolean;
   modelId?: string;
   contextWindowTokens?: number;
-  /** Percentage of the model context window that triggers LLM summarization. */
+  /** Percentage of the model context window that triggers staged context compression. */
   thresholdPercent?: number;
   protectedRecentRounds?: number;
   delay?: (ms: number) => Promise<void>;
@@ -96,9 +99,9 @@ export class ContextCompressionError extends Error {
 /**
  * Owns every model-facing context reduction decision.
  *
- * The manager deliberately performs one deterministic L2 pass per prepare()
- * call. It never loops toward a token target. The sole token threshold controls
- * whether one LLM summary is generated after that pass.
+ * Below the configured threshold the manager preserves history byte-for-byte.
+ * Once the threshold is reached, it first clears eligible older tool results
+ * and only generates one LLM summary when that cheaper pass is insufficient.
  */
 export class ContextCompressionManager {
   private static readonly GENERIC_LARGE_RESULT_CHARS = 4_000;
@@ -177,46 +180,83 @@ export class ContextCompressionManager {
   ): Promise<ContextPrepareResult> {
     if (!this.enabled) {
       const rounds = sourceRounds.map((round) => this.cloneRound(round));
+      const estimatedTokens = this.estimateRequestTokens(
+        input.fixedContext,
+        rounds,
+        [input.runtimeContext, input.currentContext, input.liveContext].filter(Boolean).join('\n'),
+        input.tools,
+      );
       return {
         rounds,
         omittedCount: 0,
-        estimatedTokens: this.estimateRequestTokens(
-          input.fixedContext,
-          rounds,
-          [input.runtimeContext, input.currentContext, input.liveContext].filter(Boolean).join('\n'),
-          input.tools,
-        ),
-        thresholdTokens: this.summaryThresholdTokens(),
+        estimatedTokens,
+        estimatedTokensBeforeCompression: estimatedTokens,
+        thresholdTokens: this.compressionThresholdTokens(),
         compacted: false,
         offloadedResults: 0,
       };
     }
 
-    // Exactly one L2 pass. The returned view is detached from the complete
-    // AgentEvent fact source owned by AgentLoop.
-    const offloaded = this.offloadOnce(sourceRounds);
-    let visibleRounds = this.roundsAfterCheckpoint(offloaded.rounds);
+    // Preserve the model-facing prefix until the complete request approaches
+    // the configured context limit. The returned view remains detached from
+    // the complete AgentEvent fact source owned by AgentLoop.
+    let visibleRounds = this.roundsAfterCheckpoint(
+      sourceRounds.map((round) => this.cloneRound(round)),
+    );
     let summaryMessage = this.renderSummaryMessage(this.checkpoint?.summary);
-    const activeDynamicContext = [
+    let activeDynamicContext = [
       input.runtimeContext,
       summaryMessage,
       input.currentContext,
       input.liveContext,
     ].filter(Boolean).join('\n');
-    const thresholdTokens = this.summaryThresholdTokens();
-    const beforeTokens = this.estimateRequestTokens(
+    const thresholdTokens = this.compressionThresholdTokens();
+    const beforeCompressionTokens = this.estimateRequestTokens(
       input.fixedContext,
       visibleRounds,
       activeDynamicContext,
       input.tools,
     );
 
-    if (beforeTokens < thresholdTokens) {
+    if (beforeCompressionTokens < thresholdTokens) {
       return {
         rounds: visibleRounds,
         summaryMessage,
         omittedCount: 0,
-        estimatedTokens: beforeTokens,
+        estimatedTokens: beforeCompressionTokens,
+        estimatedTokensBeforeCompression: beforeCompressionTokens,
+        thresholdTokens,
+        compacted: false,
+        offloadedResults: 0,
+      };
+    }
+
+    // Stage 1: once pressure reaches the threshold, clear eligible old tool
+    // outputs and estimate again before paying for an LLM-generated summary.
+    const offloaded = this.offloadOnce(sourceRounds);
+    visibleRounds = this.roundsAfterCheckpoint(offloaded.rounds);
+    summaryMessage = this.renderSummaryMessage(this.checkpoint?.summary);
+    activeDynamicContext = [
+      input.runtimeContext,
+      summaryMessage,
+      input.currentContext,
+      input.liveContext,
+    ].filter(Boolean).join('\n');
+    const afterOffloadTokens = this.estimateRequestTokens(
+      input.fixedContext,
+      visibleRounds,
+      activeDynamicContext,
+      input.tools,
+    );
+
+    if (afterOffloadTokens < thresholdTokens) {
+      return {
+        rounds: visibleRounds,
+        summaryMessage,
+        omittedCount: 0,
+        estimatedTokens: afterOffloadTokens,
+        estimatedTokensBeforeCompression: beforeCompressionTokens,
+        estimatedTokensAfterOffload: afterOffloadTokens,
         thresholdTokens,
         compacted: false,
         offloadedResults: offloaded.count,
@@ -236,11 +276,11 @@ export class ContextCompressionManager {
       !recentRoundIds.has(round.id) && !recentConversationIds.has(round.id)
     ));
     if (prefix.length <= 0) {
-      // The configurable percentage is a summary trigger, not a hard input
+      // The configurable percentage is a compression trigger, not a hard input
       // ceiling. Very low values are useful for testing and may sit below the
       // irreducible system prompt + tool schema. In that case there is simply
       // nothing useful to summarize yet, so allow the real task to proceed.
-      if (beforeTokens >= this.contextWindowTokens) {
+      if (afterOffloadTokens >= this.contextWindowTokens) {
         throw new ContextCompressionError(
           '固定提示词、运行上下文、工具定义和最近对话已超过模型输入上限，当前没有可摘要的较早历史。',
           'CONTEXT_STATIC_BUDGET_EXCEEDED',
@@ -250,7 +290,9 @@ export class ContextCompressionManager {
         rounds: visibleRounds,
         summaryMessage,
         omittedCount: 0,
-        estimatedTokens: beforeTokens,
+        estimatedTokens: afterOffloadTokens,
+        estimatedTokensBeforeCompression: beforeCompressionTokens,
+        estimatedTokensAfterOffload: afterOffloadTokens,
         thresholdTokens,
         compacted: false,
         offloadedResults: offloaded.count,
@@ -287,7 +329,7 @@ export class ContextCompressionManager {
       summary,
       throughRoundId: prefix[prefix.length - 1]!.id,
       createdAt: Date.now(),
-      estimatedTokensBefore: beforeTokens,
+      estimatedTokensBefore: beforeCompressionTokens,
       estimatedTokensAfter: 0,
     };
     summaryMessage = this.renderSummaryMessage(summary);
@@ -321,6 +363,9 @@ export class ContextCompressionManager {
       summaryMessage,
       omittedCount: 0,
       estimatedTokens: afterTokens,
+      estimatedTokensBeforeCompression: beforeCompressionTokens,
+      estimatedTokensAfterOffload: afterOffloadTokens,
+      estimatedTokensAfterSummary: afterTokens,
       thresholdTokens,
       compacted: true,
       offloadedResults: offloaded.count,
@@ -401,7 +446,7 @@ export class ContextCompressionManager {
     );
   }
 
-  private summaryThresholdTokens(): number {
+  private compressionThresholdTokens(): number {
     return Math.floor(this.contextWindowTokens * this.thresholdPercent / 100);
   }
 

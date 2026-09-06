@@ -19,3 +19,11 @@ test('starting a new request cancels the previous gate', async () => {
   cancelManualUserAction();
   await expect(second).resolves.toEqual({ completed: false, cancelled: true });
 });
+
+test('reports a bounded manual-action wait as timed out', async () => {
+  jest.useFakeTimers();
+  const pending = requestManualUserAction('完成验证码', 60_000);
+  jest.advanceTimersByTime(60_000);
+  await expect(pending).resolves.toEqual({ completed: false, timedOut: true });
+  jest.useRealTimers();
+});

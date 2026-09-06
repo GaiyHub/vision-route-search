@@ -19,25 +19,11 @@ export const REQUIRED_ENABLED_TOOLS = new Set([
 /** Internal protocol tools have immutable availability and model metadata. */
 export const NON_CONFIGURABLE_TOOLS = new Set(['file_read', 'confirm_action']);
 
-/** Phone-UI tools hidden while forced visual mode is active. Browser DOM
- * tooling is intentionally absent: the mode only changes Android UI
- * observation, not the in-app browser's own interaction model. */
-export const FORCE_VISUAL_BLOCKED_TOOLS = new Set([
-  'ui_inspect',
-  'ui_dump_raw_tree',
-  'ui_find_node',
-  'ui_get_node',
-  'ui_wait_for_node',
-  'ui_wait_for_change',
-  'ui_set_checked',
-]);
-
-export const FORCE_VISUAL_REQUIRED_TOOL = 'ui_screenshot';
-
 /** Tools whose observation semantics are protocol-owned and must not be
  * overridden from settings. */
 export const UI_EFFECT_LOCKED_TOOLS = new Set([
   ...BROWSER_TOOL_NAME_SET,
+  'execute_tools',
   'wait',
   'ui_wait_for_node',
   'ui_wait_for_change',

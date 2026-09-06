@@ -118,6 +118,48 @@ describe('ContextCompressionManager', () => {
     expect(result.thresholdTokens).toBe(27_200);
   });
 
+  test('preserves eligible historical tool results before the compression threshold', async () => {
+    const provider = new SummaryProvider();
+    const manager = new ContextCompressionManager({ provider, contextWindowTokens: 32_000 });
+    const rounds = Array.from({ length: 6 }, (_, index) => toolRound(index));
+
+    const result = await manager.prepare(rounds, { fixedContext: '固定提示词', tools: [] });
+
+    expect(provider.calls).toBe(0);
+    expect(result.compacted).toBe(false);
+    expect(result.offloadedResults).toBe(0);
+    expect(result.estimatedTokensAfterOffload).toBeUndefined();
+    expect(result.rounds).toEqual(rounds);
+    expect(result.rounds[0]!.userText).toContain('output-0');
+    expect(result.rounds[0]!.userText).not.toContain('contextOffloaded');
+  });
+
+  test('offloads first and skips summarization when that drops below the threshold', async () => {
+    const provider = new SummaryProvider();
+    const manager = new ContextCompressionManager({
+      provider,
+      contextWindowTokens: 4_096,
+      thresholdPercent: 50,
+    });
+    const rounds = [
+      toolRound(0, 'shell_execute', 'x'.repeat(5_000)),
+      toolRound(1, 'shell_execute', 'y'.repeat(5_000)),
+      ...Array.from({ length: 4 }, (_, index) => toolRound(index + 2)),
+    ];
+
+    const result = await manager.prepare(rounds, { fixedContext: '固定提示词', tools: [] });
+
+    expect(provider.calls).toBe(0);
+    expect(result.compacted).toBe(false);
+    expect(result.offloadedResults).toBe(2);
+    expect(result.estimatedTokensBeforeCompression).toBeGreaterThanOrEqual(result.thresholdTokens);
+    expect(result.estimatedTokensAfterOffload).toBe(result.estimatedTokens);
+    expect(result.estimatedTokensAfterSummary).toBeUndefined();
+    expect(result.estimatedTokens).toBeLessThan(result.thresholdTokens);
+    expect(result.rounds[0]!.userText).toContain('contextOffloaded');
+    expect(rounds[0]!.userText).toContain('xxxxx');
+  });
+
   test('uses the configured context-window percentage as the sole summary threshold', async () => {
     const provider = new SummaryProvider();
     const manager = new ContextCompressionManager({

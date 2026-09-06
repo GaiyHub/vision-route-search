@@ -43,12 +43,15 @@ describe('ToolRiskInterceptor', () => {
       },
     });
     expect(decorated.parameters.properties._risk.description)
-      .toContain('不继承整体目标');
+      .toBe('本次工具调用的风险声明。');
     expect(decorated.parameters.properties._risk.description)
-      .toContain('若仍需后续提交才产生真实外部影响，本次必须填 low');
+      .not.toContain('不继承整体目标');
     expect(decorated.parameters.properties._risk.description)
-      .toContain('high 必须用 reason 说明');
-
+      .not.toContain('若仍需后续提交才产生真实外部影响');
+    expect(decorated.parameters.properties._risk.properties).toMatchObject({
+      level: { description: '风险等级：low 或 high。' },
+      reason: { description: expect.stringContaining('level=high 时必填') },
+    });
     const readTool: Tool = {
       name: 'ui_inspect',
       description: '读取结构',

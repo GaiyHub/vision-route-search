@@ -40,6 +40,16 @@ describe('confirmStore risk-confirmation gate', () => {
     expect(seen[seen.length - 1]).toBeNull();
   });
 
+  test('can distinguish an evaluation timeout from an explicit rejection', async () => {
+    const pendingPromise = requestUserConfirm({
+      action: '发送消息',
+      risk: 'high',
+      timeoutResult: 'timeout',
+    });
+    jest.advanceTimersByTime(60_000);
+    await expect(pendingPromise).resolves.toBe('timeout');
+  });
+
   test('a late timeout after the gate settled is a harmless no-op', async () => {
     const pendingPromise = requestUserConfirm({ action: '发送消息', risk: 'high' });
     resolveUserConfirm('execute');

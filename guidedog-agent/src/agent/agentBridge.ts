@@ -125,7 +125,10 @@ import {
   validateCompletionSupplement,
 } from './completionDecision';
 import { isExternalOperationToolCall } from './completionGatePolicy';
-import { AGENT_SYSTEM_PROMPT } from './prompts/agentSystemPrompt';
+import {
+  AGENT_SYSTEM_PROMPT,
+  AGENT_SYSTEM_PROMPT_VERSION,
+} from './prompts/agentSystemPrompt';
 import { buildEnvironmentContext } from './environmentContext';
 import { speakText } from '../voice/voiceBridge';
 import { markAutomatedHostForeground } from '../voice/hostEntrySpeechPolicy';
@@ -163,6 +166,9 @@ let _commandsQueuedAfterStop: string[] = [];
 let _heartbeatTimers = new Set<ReturnType<typeof setInterval>>();
 let _activeExecutionPolicy: CommandExecutionPolicy | null = null;
 let _blockedInteraction: CommandExecutionResult['blockedInteraction'];
+let _unansweredEvaluationInteraction: CommandExecutionResult['blockedInteraction'];
+
+export const EVALUATION_INTERACTION_TIMEOUT_MS = 60_000;
 
 function isEvaluationRun(): boolean {
   return _activeExecutionPolicy?.source === 'EVALUATION';
@@ -191,6 +197,22 @@ function blockEvaluationInteraction(
     stopAgent();
   }
   throw new InteractionBlockedError(interaction);
+}
+
+function completeEvaluationAfterNoResponse(
+  interaction: NonNullable<CommandExecutionResult['blockedInteraction']>,
+): { ok: true; completed: true; noResponse: true; message: string } {
+  if (isEvaluationRun()) {
+    _unansweredEvaluationInteraction = interaction;
+    _activeLoop?.abort();
+    _activePlanner?.abort();
+  }
+  return {
+    ok: true,
+    completed: true,
+    noResponse: true,
+    message: '用户未在规定时间内响应，按评测策略结束任务',
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -926,6 +948,7 @@ const CONFIRM_ACTION_TOOL = {
 export function buildConfirmTool(
   interactionPolicy?: CommandExecutionPolicy['interactionPolicy'],
   forcePhoneSurface = false,
+  completeOnNoResponse = isEvaluationRun(),
 ): {
   tool: unknown;
   handler: (args: Record<string, unknown>) => Promise<unknown>;
@@ -976,6 +999,7 @@ export function buildConfirmTool(
         action,
         risk,
         reason,
+        ...(completeOnNoResponse ? { timeoutResult: 'timeout' as const } : {}),
       });
       const riskLabel = risk === 'high' ? '高风险' : '低风险';
       speakUserGate(
@@ -1019,6 +1043,7 @@ export function buildConfirmTool(
       }
       cancelRiskConfirmNotification();
 
+      if (choice === 'timeout') return completeEvaluationAfterNoResponse('RISK');
       if (choice === 'execute') {
         if (useDecisionCache) rememberConfirmDecision(cacheKey, 'execute');
         return {
@@ -1047,7 +1072,7 @@ export function buildConfirmTool(
 async function requestToolRiskDecision(
   request: ToolRiskGateRequest,
 ): Promise<'execute' | 'deny'> {
-  const result = await buildConfirmTool(undefined, isEvaluationRun()).handler({
+  const result = await buildConfirmTool(undefined, isEvaluationRun(), isEvaluationRun()).handler({
     action: request.summary,
     risk: request.risk,
     reason: request.reason,
@@ -1087,6 +1112,7 @@ export const ASK_USER_TOOL = {
 export function buildAskUserTool(
   interactionPolicy?: CommandExecutionPolicy['interactionPolicy'],
   forcePhoneSurface = false,
+  completeOnNoResponse = isEvaluationRun(),
 ): {
   tool: unknown;
   handler: (args: Record<string, unknown>) => Promise<unknown>;
@@ -1123,7 +1149,11 @@ export function buildAskUserTool(
         }
       }
 
-      const resultPromise = requestUserClarification({ question, placeholder });
+      const resultPromise = requestUserClarification({
+        question,
+        placeholder,
+        ...(completeOnNoResponse ? { timeoutMs: EVALUATION_INTERACTION_TIMEOUT_MS } : {}),
+      });
       let overlayInputUsed = false;
       const bringHostFallback = () => {
         overlayInputUsed = false;
@@ -1158,6 +1188,7 @@ export function buildAskUserTool(
       speakUserGate(`需要你补充信息。${question}`);
       const result = await resultPromise;
       if (overlayInputUsed) dismissOverlayTextInput();
+      if ('timedOut' in result) return completeEvaluationAfterNoResponse('ASK_USER');
       if (!result.answered) {
         return {
           ok: false,
@@ -1214,6 +1245,7 @@ export const REQUEST_USER_ACTION_TOOL = {
 export function buildRequestUserActionTool(
   interactionPolicy?: CommandExecutionPolicy['interactionPolicy'],
   forcePhoneSurface = false,
+  completeOnNoResponse = isEvaluationRun(),
 ): {
   tool: unknown;
   handler: (args: Record<string, unknown>) => Promise<unknown>;
@@ -1236,7 +1268,10 @@ export function buildRequestUserActionTool(
         };
       }
 
-      const resultPromise = requestManualUserAction(instruction);
+      const resultPromise = requestManualUserAction(
+        instruction,
+        completeOnNoResponse ? EVALUATION_INTERACTION_TIMEOUT_MS : undefined,
+      );
       let overlayShown = false;
       try {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -1248,6 +1283,7 @@ export function buildRequestUserActionTool(
         await ctrl.showUserActionOverlay(instruction);
         overlayShown = true;
         const result = await resultPromise;
+        if ('timedOut' in result) return completeEvaluationAfterNoResponse('USER_ACTION');
         if (!result.completed) {
           return {
             ok: false,
@@ -1302,8 +1338,8 @@ function buildAgentExtraTools(): Array<{
       getApiKey: () => getSettings().tavilyApiKey,
     }),
     ...(buildTodoTools() ?? []),
-    buildAskUserTool(undefined, isEvaluationRun()),
-    buildRequestUserActionTool(undefined, isEvaluationRun()),
+    buildAskUserTool(undefined, isEvaluationRun(), isEvaluationRun()),
+    buildRequestUserActionTool(undefined, isEvaluationRun(), isEvaluationRun()),
   ];
   tools.push(...createBrowserToolRegistrations().map((registration) => ({
     ...registration,
@@ -1734,6 +1770,7 @@ export async function processCommand(
   _activeExecutionPolicy = executionPolicy;
   ownsExecutionPolicy = true;
   _blockedInteraction = undefined;
+  _unansweredEvaluationInteraction = undefined;
   // The UI conversation, not an individual agent run, defines continuity.
   // The current command is already visible in chat and is excluded by the
   // builder; prior user/assistant turns are carried into the new loop.
@@ -1761,6 +1798,7 @@ export async function processCommand(
   const traceId = beginTrace({
     command,
     source: executionPolicy.source,
+    systemPromptVersion: AGENT_SYSTEM_PROMPT_VERSION,
     ...(evaluationContext ? {
       requestId: evaluationContext.requestId,
       runId: evaluationContext.runId,
@@ -1867,7 +1905,10 @@ export async function processCommand(
     actions = result.actions;
     outcome = result.outcome;
     summary = result.summary;
-    if (_blockedInteraction) {
+    if (_unansweredEvaluationInteraction) {
+      outcome = 'complete';
+      summary = `等待用户响应超时，按评测策略结束任务：${_unansweredEvaluationInteraction}`;
+    } else if (_blockedInteraction) {
       outcome = 'blocked';
       summary = `评测执行需要用户交互：${_blockedInteraction}`;
     }
@@ -1875,7 +1916,10 @@ export async function processCommand(
     const blockedInteraction = _blockedInteraction ?? (
       err instanceof InteractionBlockedError ? err.interaction : undefined
     );
-    if (blockedInteraction) {
+    if (_unansweredEvaluationInteraction) {
+      outcome = 'complete';
+      summary = `等待用户响应超时，按评测策略结束任务：${_unansweredEvaluationInteraction}`;
+    } else if (blockedInteraction) {
       const interaction = blockedInteraction;
       _blockedInteraction = interaction;
       outcome = 'blocked';
@@ -1990,6 +2034,7 @@ export async function processCommand(
 
   _activeExecutionPolicy = null;
   _blockedInteraction = undefined;
+  _unansweredEvaluationInteraction = undefined;
   ownsExecutionPolicy = false;
 
   // Inputs arriving while Stop was unwinding start only after the old task's
@@ -2003,6 +2048,7 @@ export async function processCommand(
     if (ownsExecutionPolicy) {
       _activeExecutionPolicy = null;
       _blockedInteraction = undefined;
+      _unansweredEvaluationInteraction = undefined;
     }
   }
 }
@@ -2073,7 +2119,6 @@ async function runRealAgentLoop(
     AgentLoop: new (options: {
       provider: unknown;
       maxSteps: number;
-      settleMs: number;
       useVision?: boolean;
       retryOnError?: number;
       systemPrompt?: string;
@@ -2086,9 +2131,8 @@ async function runRealAgentLoop(
       contextWindowTokens?: number;
       maxScreenLength?: number;
       suppressHostScreen?: boolean;
-      forceVisualMode?: boolean;
       screenshotNodeMarkersEnabled?: boolean;
-      screenshotDownscalingEnabled?: boolean;
+      screenshotScale?: number;
       ocrEnhancementEnabled?: boolean;
       nodeTargetGestureTapEnabled?: boolean;
       toolFilter?: string[];
@@ -2161,7 +2205,6 @@ async function runRealAgentLoop(
   const loop = new deviceAgent.AgentLoop({
     provider,
     maxSteps: settings.maxSteps,
-    settleMs: settings.settleMs,
     // Enable image handling when supported; capture still happens only when
     // the model explicitly calls the screenshot tool.
     useVision: providerSupportsVision(provider),
@@ -2176,9 +2219,8 @@ async function runRealAgentLoop(
     contextWindowTokens: getConfiguredContextWindowTokens(settings),
     maxScreenLength: settings.maxScreenLength > 0 ? settings.maxScreenLength : 0,
     suppressHostScreen: true,
-    forceVisualMode: settings.forceVisualMode,
     screenshotNodeMarkersEnabled: settings.screenshotNodeMarkersEnabled,
-    screenshotDownscalingEnabled: settings.screenshotDownscalingEnabled,
+    screenshotScale: settings.screenshotScale,
     ocrEnhancementEnabled: settings.ocrEnhancementEnabled,
     nodeTargetGestureTapEnabled: settings.nodeTargetGestureTapEnabled,
     toolCircuitBreakerOverrides: settings.toolCircuitBreakerOverrides,
@@ -2420,7 +2462,6 @@ async function runRealPlannerLoop(
     TaskPlanner: new (options: {
       provider: unknown;
       maxSteps: number;
-      settleMs: number;
       useVision?: boolean;
       retryOnError?: number;
       systemPrompt?: string;
@@ -2433,9 +2474,8 @@ async function runRealPlannerLoop(
       contextWindowTokens?: number;
       maxScreenLength?: number;
       suppressHostScreen?: boolean;
-      forceVisualMode?: boolean;
       screenshotNodeMarkersEnabled?: boolean;
-      screenshotDownscalingEnabled?: boolean;
+      screenshotScale?: number;
       ocrEnhancementEnabled?: boolean;
       nodeTargetGestureTapEnabled?: boolean;
       maxSubTasks?: number;
@@ -2503,7 +2543,6 @@ async function runRealPlannerLoop(
   const planner = new deviceAgent.TaskPlanner({
     provider,
     maxSteps: settings.maxSteps,
-    settleMs: settings.settleMs,
     useVision: providerSupportsVision(provider),
     retryOnError: settings.retryOnError > 0 ? settings.retryOnError : undefined,
     systemPrompt: AGENT_SYSTEM_PROMPT,
@@ -2516,9 +2555,8 @@ async function runRealPlannerLoop(
     contextWindowTokens: getConfiguredContextWindowTokens(settings),
     maxScreenLength: settings.maxScreenLength > 0 ? settings.maxScreenLength : 0,
     suppressHostScreen: true,
-    forceVisualMode: settings.forceVisualMode,
     screenshotNodeMarkersEnabled: settings.screenshotNodeMarkersEnabled,
-    screenshotDownscalingEnabled: settings.screenshotDownscalingEnabled,
+    screenshotScale: settings.screenshotScale,
     ocrEnhancementEnabled: settings.ocrEnhancementEnabled,
     nodeTargetGestureTapEnabled: settings.nodeTargetGestureTapEnabled,
     maxSubTasks: settings.maxSubTasks > 0 ? settings.maxSubTasks : undefined,

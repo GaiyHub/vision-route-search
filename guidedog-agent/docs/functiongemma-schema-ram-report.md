@@ -68,7 +68,7 @@ Both produce worse results than the trained baseline.
 
 #### 2.2.2 `fill` target modes — MEDIUM
 
-The runtime now exposes one canonical `fill` operation with explicit `focused`, `ref`, `text`, `content_description`, and `resource_id` target modes. The training reference must be updated to this schema before the dispatch model is enabled for text entry; there is no separate low-level text-entry tool.
+The runtime now exposes one canonical `fill` operation with only explicit `ref` and `focused` target modes. Semantic lookup is performed by observation or node-query tools before filling; historical `text`, `content_description`, and `resource_id` calls remain runtime-compatible but are not model-facing. The training reference must be updated to this schema before the dispatch model is enabled for text entry; there is no separate low-level text-entry tool.
 ```
 
 #### 2.2.3 `wait.ms` default description — LOW

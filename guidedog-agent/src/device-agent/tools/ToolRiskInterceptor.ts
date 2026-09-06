@@ -36,16 +36,16 @@ const MODEL_ASSESSED_TOOLS = new Set([
 
 const RISK_PROPERTY = {
   type: 'object' as const,
-  description: '仅评估本次调用执行完成时的直接影响，不继承整体目标或后续步骤的风险。若仍需后续提交才产生真实外部影响，本次必须填 low；high 必须用 reason 说明本次调用立即产生的真实外部影响',
+  description: '本次工具调用的风险声明。',
   properties: {
     level: {
       type: 'string' as const,
       enum: ['low', 'high'],
-      description: '本次调用自身立即产生真实外部影响时填 high；仅改变输入或中间状态、仍需后续动作才生效时填 low',
+      description: '风险等级：low 或 high。',
     },
     reason: {
       type: 'string' as const,
-      description: 'high 必填：用简洁业务语义说明对象、关键数值和直接后果；low 省略',
+      description: 'level=high 时必填：用简洁业务语义说明对象、关键数值和直接后果；low 时省略。',
     },
   },
   required: ['level'],
@@ -97,6 +97,25 @@ export interface ToolRiskInterceptorOptions {
  */
 export class ToolRiskInterceptor {
   constructor(private readonly options: ToolRiskInterceptorOptions = {}) {}
+
+  /** Validate model-owned risk metadata without opening the user gate. */
+  validate(call: ToolCall): ToolFailure | null {
+    if (!toolNeedsModelRiskAssessment(call.name) || !this.options.gate) return null;
+    const declared = parseAssessment(call.arguments._risk);
+    if (!declared) {
+      return toolFailure('缺少有效的工具风险评估', 'INVALID_ARGUMENT', {
+        retryable: true,
+        hint: '请按当前工具 schema 将 _risk 填为 { level: "low" } 或 { level: "high", reason: "…" } 后重新调用。',
+      });
+    }
+    if (declared.level === 'high' && !declared.reason) {
+      return toolFailure('高风险工具调用缺少风险说明', 'INVALID_ARGUMENT', {
+        retryable: true,
+        hint: '请将 _risk 设为 { level: "high", reason: "对象、关键数值和直接后果" } 后重新调用。',
+      });
+    }
+    return null;
+  }
 
   requiresConfirmation(call: ToolCall): boolean {
     const assessment = this.resolveAssessment(call);

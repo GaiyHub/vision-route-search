@@ -168,6 +168,39 @@ describe('AgentLoop explicit screen observations', () => {
     )).toBe(true);
   });
 
+  it('reuses the same screenshot and structure across inference retries', async () => {
+    const attempts: Array<{ messages: LLMMessage[]; image: ScreenshotImage }> = [];
+    const provider = {
+      generateWithTools: jest.fn(async () =>
+        '{"name":"ui_screenshot","arguments":{}}'),
+      generateWithVision: jest.fn(async (
+        messages: LLMMessage[],
+        _tools: unknown,
+        image: ScreenshotImage,
+      ) => {
+        attempts.push({ messages, image });
+        if (attempts.length === 1) throw new Error('temporary vision failure');
+        return '{"name":"task_complete","arguments":{"summary":"已查看"}}';
+      }),
+    } as unknown as LLMProviderInterface;
+    const loop = new AgentLoop({
+      provider,
+      useVision: true,
+      maxSteps: 3,
+      retryOnError: 1,
+      requestTimeoutMs: 0,
+    });
+
+    for await (const _event of loop.run('重试视觉观察')) { /* drain */ }
+
+    expect(attempts).toHaveLength(2);
+    expect(attempts.map(({ image }) => image.path))
+      .toEqual(['/tmp/explicit.png', '/tmp/explicit.png']);
+    expect(attempts[1].messages).toEqual(attempts[0].messages);
+    expect(attempts[1].messages.map((message) => message.content).join('\n'))
+      .toContain('accessibility_tree:');
+  });
+
   it('pauses for host-owned capture permission and retries the same screenshot once', async () => {
     mockCtrl.probeProjectionReady.mockResolvedValue(false);
     const permissionGate = jest.fn(async () => {
@@ -294,7 +327,6 @@ describe('AgentLoop explicit screen observations', () => {
       provider,
       useVision: true,
       maxSteps: 4,
-      settleMs: 0,
       requestTimeoutMs: 0,
       onThinking: (content) => thinking.push(content),
     });
@@ -349,7 +381,6 @@ describe('AgentLoop explicit screen observations', () => {
       provider,
       useVision: true,
       maxSteps: 8,
-      settleMs: 0,
       requestTimeoutMs: 0,
       extraTools: [{
         tool: {
@@ -434,7 +465,6 @@ describe('AgentLoop explicit screen observations', () => {
       provider,
       useVision: true,
       maxSteps: 4,
-      settleMs: 0,
       requestTimeoutMs: 0,
       extraTools: [{
         tool: {
@@ -490,7 +520,6 @@ describe('AgentLoop explicit screen observations', () => {
       provider,
       useVision: true,
       maxSteps: 3,
-      settleMs: 0,
       requestTimeoutMs: 0,
     });
 
@@ -517,7 +546,6 @@ describe('AgentLoop explicit screen observations', () => {
       provider,
       useVision: true,
       maxSteps: 3,
-      settleMs: 0,
       requestTimeoutMs: 0,
     });
 

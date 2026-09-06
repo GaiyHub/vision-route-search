@@ -32,7 +32,6 @@ jest.mock('../../store/settingsStore', () => ({
     cloudModel: '',
     cloudProvider: 'auto',
     maxSteps: 5,
-    settleMs: 100,
   }),
 }));
 

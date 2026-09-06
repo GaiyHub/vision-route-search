@@ -34,6 +34,8 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import {
   DEFAULT_SETTINGS,
+  MAX_SCREENSHOT_SCALE,
+  MIN_SCREENSHOT_SCALE,
   type CloudModelProfile,
   type Settings,
   loadSettings,
@@ -58,8 +60,6 @@ import {
   type ToolCircuitBreakerThreshold,
 } from '../../src/device-agent/tools/ToolCircuitBreakerPolicy';
 import {
-  FORCE_VISUAL_BLOCKED_TOOLS,
-  FORCE_VISUAL_REQUIRED_TOOL,
   MAX_TOOL_DESCRIPTION_LENGTH,
   MAX_TOOL_LABEL_LENGTH,
   REQUIRED_ENABLED_TOOLS,
@@ -861,16 +861,6 @@ export function SettingsScreen() {
             onChange={(v) => update({ maxSteps: v })}
           />
           <View style={styles.divider} />
-          <StepperRow
-            label="动作间隔（毫秒）"
-            value={settings.settleMs}
-            min={100}
-            max={2000}
-            step={100}
-            unit="ms"
-            onChange={(v) => update({ settleMs: v })}
-          />
-          <View style={styles.divider} />
           <ToggleRow
             label="节点中心手势优先"
             value={settings.nodeTargetGestureTapEnabled}
@@ -928,7 +918,7 @@ export function SettingsScreen() {
             <>
               <View style={styles.divider} />
               <PercentageSliderRow
-                label="摘要触发阈值"
+                label="压缩触发阈值"
                 value={settings.contextCompressionThresholdPercent}
                 min={1}
                 max={95}
@@ -975,7 +965,7 @@ export function SettingsScreen() {
           />
           <View style={styles.divider} />
           <SettingTip
-            text="最大步数：单个任务最多执行的动作数。动作间隔：每次操作后的等待时间。默认点击链路会查询实时原始无障碍树，以节点实时 bounds 的中心手势激活目标；手势被拒绝时降级到节点或可点击祖先动作。关闭“节点中心手势优先”可回滚到节点动作优先。失败重试：按指数退避重试失败的模型调用。计划模式：由模型把复杂任务拆成子任务执行。超时：N 秒后停止任务（0 = 不限制）。智能上下文压缩：每轮按固定规则卸载旧工具结果，估算上下文达到“摘要触发阈值”时生成一次摘要；关闭后不压缩可用上下文。压缩时保留原文轮数：压缩时分别保留最近 N 个历史轮次和最近 N 个真实对话轮次，两者取并集。连续会话保留对话轮数：本轮新指令最多携带此前多少轮用户与豆泡对话（每条用户消息开启一轮，0 = 不携带），并受 8,000 字符总上限保护。最大保留历史对话：历史栏最多保留的最近会话数（超出后自动丢弃最旧记录）。屏幕内容长度：截断无障碍树以保护上下文窗口（0 = 不截断）。"
+            text="最大步数：单个任务最多执行的动作数。默认点击链路会查询实时原始无障碍树，以节点实时 bounds 的中心手势激活目标；手势被拒绝时降级到节点或可点击祖先动作。关闭“节点中心手势优先”可回滚到节点动作优先。失败重试：按指数退避重试失败的模型调用。计划模式：由模型把复杂任务拆成子任务执行。超时：N 秒后停止任务（0 = 不限制）。智能上下文压缩：达到“压缩触发阈值”前保持历史不变；达到阈值后先卸载较早的工具结果，仍超过阈值时才生成摘要。关闭后不压缩可用上下文。压缩时保留原文轮数：压缩时分别保留最近 N 个历史轮次和最近 N 个真实对话轮次，两者取并集。连续会话保留对话轮数：本轮新指令最多携带此前多少轮用户与豆泡对话（每条用户消息开启一轮，0 = 不携带），并受 8,000 字符总上限保护。最大保留历史对话：历史栏最多保留的最近会话数（超出后自动丢弃最旧记录）。屏幕内容长度：截断无障碍树以保护上下文窗口（0 = 不截断）。"
           />
         </View>
 
@@ -983,21 +973,17 @@ export function SettingsScreen() {
         <SectionHeader title="视觉配置" />
         <View style={styles.card}>
           <ToggleRow
-            label="强制视觉模式"
-            value={settings.forceVisualMode}
-            onChange={(v) => update({ forceVisualMode: v })}
-          />
-          <View style={styles.divider} />
-          <ToggleRow
             label="截屏语义增强"
             value={settings.screenshotNodeMarkersEnabled}
             onChange={(v) => update({ screenshotNodeMarkersEnabled: v })}
           />
           <View style={styles.divider} />
-          <ToggleRow
-            label="截屏缩放"
-            value={settings.screenshotDownscalingEnabled}
-            onChange={(v) => update({ screenshotDownscalingEnabled: v })}
+          <PercentageSliderRow
+            label="截屏缩放比例"
+            value={Math.round(settings.screenshotScale * 100)}
+            min={MIN_SCREENSHOT_SCALE * 100}
+            max={MAX_SCREENSHOT_SCALE * 100}
+            onChange={(v) => update({ screenshotScale: v / 100 })}
           />
           <View style={styles.divider} />
           <ToggleRow
@@ -1013,7 +999,7 @@ export function SettingsScreen() {
           />
           <View style={styles.divider} />
           <SettingTip
-            text="强制视觉模式：关闭独立结构查询工具，手机 UI 统一通过 screenshot 观察；截图仍同时附带近似同帧的无障碍树，并由 Agent 按需调用。截屏语义增强：在发送给模型的截图副本上绘制短期 ref 边框，不影响 ref 生成和点击逻辑。截屏缩放：默认将发送给模型的截图等比缩至最长边 2000 像素并以 JPEG 85 编码；OCR、坐标换算和本地截图仍使用原始尺寸。OCR 增强：允许 Agent 在截图时按需运行端侧 OCR，并返回可点击的文字 ref；关闭后不运行 OCR。截图留存仅用于本地调试。"
+            text="截屏语义增强：在发送给模型的截图副本上绘制短期 ref 边框，不影响 ref 生成和点击逻辑。截屏缩放比例：将发送给模型的截图按 50%～100% 等比例缩放并以 JPEG 85 编码；比例越低通常越节省图像 Token 和传输时间，但细小文字与图标可能更难识别。OCR、坐标换算和本地截图仍使用原始尺寸。OCR 增强：允许 Agent 在截图时按需运行端侧 OCR，并返回可点击的文字 ref；关闭后不运行 OCR。截图留存仅用于本地调试。"
           />
         </View>
 
@@ -1257,37 +1243,64 @@ function PercentageSliderRow({
   max: number;
   onChange: (v: number) => void;
 }) {
+  const trackRef = useRef<View>(null);
+  const trackLeftRef = useRef(0);
   const [trackWidth, setTrackWidth] = useState(0);
   const [draft, setDraft] = useState(value);
+  const [visualProgress, setVisualProgress] = useState(
+    max === min ? 0 : (value - min) / (max - min),
+  );
   const draftRef = useRef(value);
 
   useEffect(() => {
     setDraft(value);
     draftRef.current = value;
-  }, [value]);
+    setVisualProgress(max === min ? 0 : (value - min) / (max - min));
+  }, [max, min, value]);
 
-  const valueAt = useCallback((locationX: number) => {
-    if (trackWidth <= 0) return draftRef.current;
-    const ratio = Math.max(0, Math.min(1, locationX / trackWidth));
-    return Math.round(min + ratio * (max - min));
-  }, [max, min, trackWidth]);
-
-  const updateFromEvent = useCallback((event: GestureResponderEvent, commit: boolean) => {
-    const next = valueAt(event.nativeEvent.locationX);
+  const updateFromPageX = useCallback((pageX: number, commit: boolean) => {
+    if (trackWidth <= 0) return;
+    const ratio = Math.max(0, Math.min(1, (pageX - trackLeftRef.current) / trackWidth));
+    const next = Math.round(min + ratio * (max - min));
     draftRef.current = next;
     setDraft(next);
-    if (commit) onChange(next);
-  }, [onChange, valueAt]);
+    if (commit) {
+      setVisualProgress(max === min ? 0 : (next - min) / (max - min));
+      onChange(next);
+    } else {
+      setVisualProgress(ratio);
+    }
+  }, [max, min, onChange, trackWidth]);
+
+  const updateFromEvent = useCallback((event: GestureResponderEvent, commit: boolean) => {
+    const pageX = event.nativeEvent.pageX;
+    trackRef.current?.measureInWindow((x, _y, width) => {
+      trackLeftRef.current = x;
+      if (width > 0 && width !== trackWidth) setTrackWidth(width);
+      const effectiveWidth = width > 0 ? width : trackWidth;
+      if (effectiveWidth <= 0) return;
+      const ratio = Math.max(0, Math.min(1, (pageX - x) / effectiveWidth));
+      const next = Math.round(min + ratio * (max - min));
+      draftRef.current = next;
+      setDraft(next);
+      if (commit) {
+        setVisualProgress(max === min ? 0 : (next - min) / (max - min));
+        onChange(next);
+      } else {
+        setVisualProgress(ratio);
+      }
+    });
+  }, [max, min, onChange, trackWidth]);
 
   const adjust = useCallback((delta: number) => {
     const next = Math.max(min, Math.min(max, draftRef.current + delta));
     draftRef.current = next;
     setDraft(next);
+    setVisualProgress(max === min ? 0 : (next - min) / (max - min));
     onChange(next);
   }, [max, min, onChange]);
 
-  const progress = max === min ? 0 : (draft - min) / (max - min);
-  const thumbLeft = trackWidth > 0 ? progress * trackWidth - 9 : 0;
+  const thumbLeft = trackWidth > 0 ? visualProgress * trackWidth - 9 : 0;
 
   return (
     <View style={styles.percentageSliderRow}>
@@ -1296,14 +1309,23 @@ function PercentageSliderRow({
         <Text style={styles.percentageSliderValue}>{draft}%</Text>
       </View>
       <View
+        ref={trackRef}
         style={styles.percentageSliderTouchArea}
-        onLayout={(event: LayoutChangeEvent) => setTrackWidth(event.nativeEvent.layout.width)}
+        onLayout={(event: LayoutChangeEvent) => {
+          setTrackWidth(event.nativeEvent.layout.width);
+          trackRef.current?.measureInWindow((x) => { trackLeftRef.current = x; });
+        }}
         onStartShouldSetResponder={() => true}
         onMoveShouldSetResponder={() => true}
+        onResponderTerminationRequest={() => false}
         onResponderGrant={(event) => updateFromEvent(event, false)}
-        onResponderMove={(event) => updateFromEvent(event, false)}
+        onResponderMove={(event) => updateFromPageX(event.nativeEvent.pageX, false)}
         onResponderRelease={(event) => updateFromEvent(event, true)}
-        onResponderTerminate={() => onChange(draftRef.current)}
+        onResponderTerminate={() => {
+          const next = draftRef.current;
+          setVisualProgress(max === min ? 0 : (next - min) / (max - min));
+          onChange(next);
+        }}
         accessible
         accessibilityRole="adjustable"
         accessibilityLabel={label}
@@ -1318,7 +1340,7 @@ function PercentageSliderRow({
         }}
       >
         <View style={styles.percentageSliderTrack}>
-          <View style={[styles.percentageSliderFill, { width: `${progress * 100}%` }]} />
+          <View style={[styles.percentageSliderFill, { width: `${visualProgress * 100}%` }]} />
         </View>
         <View style={[styles.percentageSliderThumb, { left: thumbLeft }]} />
       </View>
@@ -1899,13 +1921,6 @@ function ToolsSettingsTab({
           <React.Fragment key={family}>
             <SectionHeader title={TOOL_FAMILY_LABELS[family]} />
             {entries.map((entry) => {
-              const forcedState = settings.forceVisualMode
-                ? entry.name === FORCE_VISUAL_REQUIRED_TOOL
-                  ? 'enabled'
-                  : FORCE_VISUAL_BLOCKED_TOOLS.has(entry.name)
-                    ? 'disabled'
-                    : undefined
-                : undefined;
               const configuredEnabled =
                 REQUIRED_ENABLED_TOOLS.has(entry.name) ||
                 (settings.toolConfigurationOverrides[entry.name]?.enabled ?? true);
@@ -1913,8 +1928,7 @@ function ToolsSettingsTab({
                 <ToolThresholdCard
                   key={entry.name}
                   entry={entry}
-                  enabled={forcedState ? forcedState === 'enabled' : configuredEnabled}
-                  forcedState={forcedState}
+                  enabled={configuredEnabled}
                   configuration={settings.toolConfigurationOverrides[entry.name] ?? {}}
                   value={
                     settings.toolCircuitBreakerOverrides[entry.name] ??
@@ -1940,7 +1954,6 @@ function ToolsSettingsTab({
 function ToolThresholdCard({
   entry,
   enabled,
-  forcedState,
   configuration,
   value,
   overridden,
@@ -1950,7 +1963,6 @@ function ToolThresholdCard({
 }: {
   entry: ToolCircuitBreakerCatalogEntry;
   enabled: boolean;
-  forcedState?: 'enabled' | 'disabled';
   configuration: ToolConfigurationOverride;
   value: ToolCircuitBreakerThreshold | null;
   overridden: boolean;
@@ -1972,9 +1984,7 @@ function ToolThresholdCard({
           <Text style={styles.toolName}>{entry.name}</Text>
         </View>
         <Text style={[styles.toolStatus, enabled ? styles.toolStatusEnabled : styles.toolStatusDisabled]}>
-          {forcedState
-            ? forcedState === 'enabled' ? '视觉模式必需' : '视觉模式禁用'
-            : enabled
+          {enabled
             ? REQUIRED_ENABLED_TOOLS.has(entry.name)
               ? '必需工具'
               : entry.behavior === 'exempt'
@@ -1987,7 +1997,7 @@ function ToolThresholdCard({
         <Text style={styles.toolConfigurationLabel}>允许模型使用</Text>
         <Switch
           value={enabled}
-          disabled={REQUIRED_ENABLED_TOOLS.has(entry.name) || forcedState !== undefined}
+          disabled={REQUIRED_ENABLED_TOOLS.has(entry.name)}
           onValueChange={(next) => onConfigurationChange(entry.name, { enabled: next })}
           trackColor={{ false: '#D1D5DB', true: '#A7F3D0' }}
           thumbColor={enabled ? '#059669' : '#F9FAFB'}
@@ -2040,13 +2050,6 @@ function ToolThresholdCard({
       )}
       {REQUIRED_ENABLED_TOOLS.has(entry.name) && (
         <Text style={styles.toolRequiredText}>核心执行、安全确认或任务结束流程依赖此工具，因此不可禁用。</Text>
-      )}
-      {forcedState && (
-        <Text style={styles.toolRequiredText}>
-          {forcedState === 'enabled'
-            ? '强制视觉模式下 screenshot 始终可用。'
-            : '强制视觉模式下页面结构工具不可用；关闭该模式后恢复原配置。'}
-        </Text>
       )}
       <View style={styles.toolMetadataWrap}>
         <Text style={styles.toolMetadataLabel}>显示名称</Text>
@@ -2990,7 +2993,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 10,
     paddingHorizontal: 16,
-    paddingBottom: 13,
+    paddingVertical: 13,
   },
   commandFileButton: {
     flex: 1,

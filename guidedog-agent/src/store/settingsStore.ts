@@ -37,6 +37,17 @@ import {
 
 export type CloudProvider = 'auto' | 'anthropic' | 'openai' | 'openrouter';
 
+export const MIN_SCREENSHOT_SCALE = 0.5;
+export const MAX_SCREENSHOT_SCALE = 1;
+export const DEFAULT_SCREENSHOT_SCALE = 0.6;
+
+export function normalizeScreenshotScale(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return DEFAULT_SCREENSHOT_SCALE;
+  return Math.round(
+    Math.max(MIN_SCREENSHOT_SCALE, Math.min(MAX_SCREENSHOT_SCALE, value)) * 100,
+  ) / 100;
+}
+
 export interface CloudModelProfile {
   /** Stable local identifier used when switching profiles. */
   id: string;
@@ -104,14 +115,12 @@ export interface Settings {
   activeCloudModelProfileId: string;
   /** Maximum number of agent loop steps before giving up. */
   maxSteps: number;
-  /** Milliseconds to wait after each action before observing the result. */
-  settleMs: number;
-  /** Make screenshot the sole Android UI observation channel for the agent. */
-  forceVisualMode: boolean;
   /** Draw short-lived accessibility refs over screenshots sent to the model. */
   screenshotNodeMarkersEnabled: boolean;
   /** Downscale the model-only screenshot copy while preserving physical screen dimensions. */
   screenshotDownscalingEnabled: boolean;
+  /** Model-only screenshot scale. Kept between 0.5 and 1.0. */
+  screenshotScale: number;
   /** Allow the screenshot tool to run bundled OCR and expose OCR refs. */
   ocrEnhancementEnabled: boolean;
   /** Prefer one gesture at the resolved live node center; false restores action-first dispatch. */
@@ -140,9 +149,9 @@ export interface Settings {
    * multiply by 1000 before passing to AgentLoop's `timeoutMs` option.
    */
   timeoutSecs: number;
-  /** Use token-aware fixed offload + LLM summary; false disables compression. */
+  /** Use token-aware staged tool-result cleanup + LLM summary; false disables compression. */
   contextCompressionEnabled: boolean;
-  /** Context-window usage percentage that triggers an LLM-generated summary. */
+  /** Context-window usage percentage that triggers staged compression. */
   contextCompressionThresholdPercent: number;
   /** Recent history and real conversation rounds kept verbatim during compression. */
   contextCompressionProtectedRecentRounds: number;
@@ -212,10 +221,9 @@ export const DEFAULT_SETTINGS: Settings = {
   ],
   activeCloudModelProfileId: DEFAULT_CLOUD_MODEL_PROFILE.id,
   maxSteps: DEFAULT_AGENT_STEPS,
-  settleMs: 500,
-  forceVisualMode: false,
   screenshotNodeMarkersEnabled: true,
   screenshotDownscalingEnabled: true,
+  screenshotScale: DEFAULT_SCREENSHOT_SCALE,
   ocrEnhancementEnabled: true,
   nodeTargetGestureTapEnabled: true,
   retryOnError: 0,
@@ -250,7 +258,7 @@ const SETTINGS_KEY = '@deft/settings';
  * migration that can't be told apart from a user's explicit choice by
  * looking at the raw value alone.
  */
-const SETTINGS_VERSION = 23;
+const SETTINGS_VERSION = 26;
 
 /**
  * v1 persisted `enableThinking: true`; v2 force-migrated it to `false` to
@@ -400,6 +408,27 @@ function migrateSettings(parsed: Record<string, unknown>): boolean {
   // physical coordinate conversion continue to use the original screenshot.
   if (version < 23 && parsed.screenshotDownscalingEnabled === undefined) {
     parsed.screenshotDownscalingEnabled = true;
+    changed = true;
+  }
+  // v24 removes forced visual mode. Android UI observation always exposes
+  // the independently configurable structure and screenshot tools.
+  if (Object.prototype.hasOwnProperty.call(parsed, 'forceVisualMode')) {
+    delete parsed.forceVisualMode;
+    changed = true;
+  }
+  // v25 removes the AgentLoop-wide fixed delay. Readiness is now explicit or
+  // owned by the tool that can evaluate the relevant state transition.
+  if (Object.prototype.hasOwnProperty.call(parsed, 'settleMs')) {
+    delete parsed.settleMs;
+    changed = true;
+  }
+  // v26 replaces the on/off screenshot resize control with a user-selected
+  // proportional scale. Preserve an explicit legacy opt-out as full size;
+  // enabled and missing legacy values adopt the new balanced default.
+  if (version < 26 && parsed.screenshotScale === undefined) {
+    parsed.screenshotScale = parsed.screenshotDownscalingEnabled === false
+      ? MAX_SCREENSHOT_SCALE
+      : DEFAULT_SCREENSHOT_SCALE;
     changed = true;
   }
   // Screenshot capture is now exclusively model-triggered. Image attachment
@@ -559,6 +588,9 @@ export async function loadSettings(): Promise<Settings> {
           normalizeContextCompressionProtectedRecentRounds(
             parsed.contextCompressionProtectedRecentRounds,
           ),
+        screenshotScale: normalizeScreenshotScale(parsed.screenshotScale),
+        screenshotDownscalingEnabled:
+          normalizeScreenshotScale(parsed.screenshotScale) < MAX_SCREENSHOT_SCALE,
         savedCommands: Array.isArray(parsed.savedCommands)
           ? parsed.savedCommands.filter((value): value is string => typeof value === 'string')
           : [...DEFAULT_SETTINGS.savedCommands],
@@ -601,6 +633,15 @@ export function getSettings(): Settings {
 
 /** Merge a partial patch into the settings and persist. */
 export async function saveSettings(patch: Partial<Settings>): Promise<void> {
+  const screenshotScale = patch.screenshotScale !== undefined
+    ? normalizeScreenshotScale(patch.screenshotScale)
+    : patch.screenshotDownscalingEnabled !== undefined
+      ? patch.screenshotDownscalingEnabled
+        ? (_cache.screenshotScale < MAX_SCREENSHOT_SCALE
+            ? _cache.screenshotScale
+            : DEFAULT_SCREENSHOT_SCALE)
+        : MAX_SCREENSHOT_SCALE
+      : _cache.screenshotScale;
   let next: Settings = {
     ..._cache,
     ...patch,
@@ -623,6 +664,8 @@ export async function saveSettings(patch: Partial<Settings>): Promise<void> {
         : normalizeContextCompressionProtectedRecentRounds(
           patch.contextCompressionProtectedRecentRounds,
         ),
+    screenshotScale,
+    screenshotDownscalingEnabled: screenshotScale < MAX_SCREENSHOT_SCALE,
     toolCircuitBreakerOverrides:
       patch.toolCircuitBreakerOverrides === undefined
         ? _cache.toolCircuitBreakerOverrides

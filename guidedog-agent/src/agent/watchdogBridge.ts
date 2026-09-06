@@ -126,10 +126,9 @@ async function runWatchdogTick(config: WatchdogConfig): Promise<WatchdogTickResu
       AgentLoop: new (options: {
         provider: unknown;
         maxSteps: number;
-        settleMs: number;
         useVision?: boolean;
         screenshotNodeMarkersEnabled?: boolean;
-        screenshotDownscalingEnabled?: boolean;
+        screenshotScale?: number;
         nodeTargetGestureTapEnabled?: boolean;
         contextCompressionThresholdPercent?: number;
         systemPromptSuffix?: string;
@@ -187,12 +186,11 @@ async function runWatchdogTick(config: WatchdogConfig): Promise<WatchdogTickResu
     const loop = new deviceAgent.AgentLoop({
       provider,
       maxSteps: Math.min(settings.maxSteps, 5),
-      settleMs: settings.settleMs,
       // Captures remain explicit; AgentLoop attaches an image only when the
       // selected provider exposes visual inference support.
       useVision: typeof (provider as { generateWithVision?: unknown }).generateWithVision === 'function',
       screenshotNodeMarkersEnabled: settings.screenshotNodeMarkersEnabled,
-      screenshotDownscalingEnabled: settings.screenshotDownscalingEnabled,
+      screenshotScale: settings.screenshotScale,
       nodeTargetGestureTapEnabled: settings.nodeTargetGestureTapEnabled,
       contextCompressionThresholdPercent: settings.contextCompressionThresholdPercent,
       systemPromptSuffix: WATCHDOG_SYSTEM_SUFFIX,

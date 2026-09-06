@@ -146,9 +146,15 @@ function describeWatchdog(w: WatchdogConfig): string {
 
 interface ChatScreenProps {
   initialCommand?: string;
+  favoritesOpen: boolean;
+  onFavoritesOpenChange: (open: boolean) => void;
 }
 
-export function ChatScreen({ initialCommand }: ChatScreenProps) {
+export function ChatScreen({
+  initialCommand,
+  favoritesOpen,
+  onFavoritesOpenChange,
+}: ChatScreenProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState('');
   const [recommendedCommandsEnabled, setRecommendedCommandsEnabled] = useState(
@@ -181,7 +187,6 @@ export function ChatScreen({ initialCommand }: ChatScreenProps) {
   const messageSubmitGuardRef = useRef(new MessageSubmitGuard());
   const isRunningRef = useRef(false);
   const [favorites, setFavorites] = useState<string[]>(getFavorites());
-  const [favoritesOpen, setFavoritesOpen] = useState(false);
   const [headerHeight, setHeaderHeight] = useState(0);
   const [recentCommands, setRecentCommands] = useState<string[]>([]);
   const [elapsedSecs, setElapsedSecs] = useState(0);
@@ -661,11 +666,7 @@ export function ChatScreen({ initialCommand }: ChatScreenProps) {
     // Navigation no longer occupies the bottom edge, so retain the bottom
     // safe area for the composer on gesture-navigation devices.
     <SafeAreaView style={styles.safe} edges={['top', 'left', 'right', 'bottom']}>
-      <Header
-        onToggleFavorites={() => setFavoritesOpen((open) => !open)}
-        favoritesOpen={favoritesOpen}
-        onLayout={(e) => setHeaderHeight(e.nativeEvent.layout.height)}
-      />
+      <Header onLayout={(e) => setHeaderHeight(e.nativeEvent.layout.height)} />
       {favoritesOpen && (
         <FavoritesDropdown
           favorites={favorites}
@@ -674,11 +675,11 @@ export function ChatScreen({ initialCommand }: ChatScreenProps) {
           top={headerHeight + 4}
           onPick={(text) => {
             setInputText(text);
-            setFavoritesOpen(false);
+            onFavoritesOpenChange(false);
           }}
           onUnfavorite={handleRemoveFavorite}
           onDismissRecommended={handleDismissRecommendedCommand}
-          onClose={() => setFavoritesOpen(false)}
+          onClose={() => onFavoritesOpenChange(false)}
         />
       )}
       <KeyboardAvoidingView
@@ -993,31 +994,12 @@ function CompletionDecisionCard({
 // Header
 // ---------------------------------------------------------------------------
 
-function Header({
-  onToggleFavorites,
-  favoritesOpen,
-  onLayout,
-}: {
-  onToggleFavorites: () => void;
-  favoritesOpen: boolean;
+function Header({ onLayout }: {
   onLayout?: (event: LayoutChangeEvent) => void;
 }) {
   return (
     <View style={styles.header} onLayout={onLayout}>
       <Text style={styles.headerTitle}>豆泡</Text>
-      <TouchableOpacity
-        onPress={onToggleFavorites}
-        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-        activeOpacity={0.7}
-        style={styles.favEntryBtn}
-        accessibilityLabel={favoritesOpen ? '关闭收藏指令' : '打开收藏指令'}
-      >
-        <Ionicons
-          name={favoritesOpen ? 'star' : 'star-outline'}
-          size={22}
-          color={favoritesOpen ? '#059669' : '#4B5563'}
-        />
-      </TouchableOpacity>
     </View>
   );
 }
@@ -1125,12 +1107,13 @@ function EmptyState({
   const chips = getCommandSuggestions(recentCommands);
   return (
     <View style={styles.empty}>
-      <ScrollView
-        contentContainerStyle={styles.emptyContent}
-        showsVerticalScrollIndicator={false}
-      >
-        <Text style={styles.emptyHeadline}>需要我做什么？</Text>
-        {chips.length > 0 && (
+      <Text style={styles.emptyHeadline}>需要我做什么？</Text>
+      {chips.length > 0 && (
+        <ScrollView
+          style={styles.emptyHistoryViewport}
+          contentContainerStyle={styles.emptyContent}
+          showsVerticalScrollIndicator={false}
+        >
           <View style={styles.suggestions}>
             {chips.map((text) => (
               <SuggestionChip
@@ -1141,8 +1124,8 @@ function EmptyState({
               />
             ))}
           </View>
-        )}
-      </ScrollView>
+        </ScrollView>
+      )}
     </View>
   );
 }
@@ -1872,8 +1855,9 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingLeft: 64,
+    justifyContent: 'center',
+    minHeight: 68,
+    paddingLeft: 12,
     paddingRight: 12,
     paddingVertical: 14,
     borderBottomWidth: 1,
@@ -1884,12 +1868,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#059669',
     letterSpacing: -0.3,
-  },
-  favEntryBtn: {
-    width: 40,
-    height: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   // Favorites dropdown overlay
   favOverlay: {
@@ -2060,12 +2038,20 @@ const styles = StyleSheet.create({
   empty: {
     flex: 1,
     overflow: 'hidden',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 8,
+  },
+  emptyHistoryViewport: {
+    flexGrow: 0,
+    width: '100%',
+    maxHeight: '50%',
   },
   emptyContent: {
-    flexGrow: 1,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 32,
+    paddingVertical: 12,
     gap: 12,
   },
   emptyHeadline: {
@@ -2460,7 +2446,7 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: '#1F2329',
     lineHeight: 20,
-    shadowColor: '#047857',
+    shadowColor: '#6B7280',
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.14,
     shadowRadius: 8,

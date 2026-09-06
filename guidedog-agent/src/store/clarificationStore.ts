@@ -10,7 +10,8 @@ export interface PendingClarification {
 
 export type ClarificationResult =
   | { answered: true; answer: string }
-  | { answered: false; cancelled: true };
+  | { answered: false; cancelled: true }
+  | { answered: false; timedOut: true };
 
 export type ClarificationSubmitResult =
   | { ok: true }
@@ -18,6 +19,7 @@ export type ClarificationSubmitResult =
 
 let pending: (PendingClarification & {
   resolve: (result: ClarificationResult) => void;
+  timer?: ReturnType<typeof setTimeout>;
 }) | null = null;
 let listeners: Array<(value: PendingClarification | null) => void> = [];
 
@@ -46,16 +48,29 @@ export function subscribeClarification(
 export function requestUserClarification(opts: {
   question: string;
   placeholder?: string;
+  timeoutMs?: number;
 }): Promise<ClarificationResult> {
   const previous = pending;
-  if (previous) previous.resolve({ answered: false, cancelled: true });
+  if (previous) {
+    if (previous.timer) clearTimeout(previous.timer);
+    previous.resolve({ answered: false, cancelled: true });
+  }
   return new Promise((resolve) => {
-    pending = {
+    const request: NonNullable<typeof pending> = {
       id: nextId(),
       question: opts.question,
       placeholder: opts.placeholder,
       resolve,
     };
+    if (opts.timeoutMs !== undefined) {
+      request.timer = setTimeout(() => {
+        if (pending !== request) return;
+        pending = null;
+        notify();
+        resolve({ answered: false, timedOut: true });
+      }, opts.timeoutMs);
+    }
+    pending = request;
     notify();
   });
 }
@@ -69,6 +84,7 @@ export function submitUserClarification(answer: string): ClarificationSubmitResu
   const current = pending;
   if (!current) return { ok: false, error: 'not_pending' };
   pending = null;
+  if (current.timer) clearTimeout(current.timer);
   notify();
   // Let the caller append the accepted user text to chat before the waiting
   // agent resumes and can emit its next response.
@@ -80,6 +96,7 @@ export function submitUserClarification(answer: string): ClarificationSubmitResu
 export function cancelUserClarification(): void {
   const current = pending;
   pending = null;
+  if (current?.timer) clearTimeout(current.timer);
   notify();
   current?.resolve({ answered: false, cancelled: true });
 }

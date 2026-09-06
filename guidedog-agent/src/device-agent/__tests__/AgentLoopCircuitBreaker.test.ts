@@ -49,7 +49,6 @@ describe('AgentLoop circuit-breaker integration', () => {
     const loop = new AgentLoop({
       provider,
       maxSteps: 8,
-      settleMs: 0,
       delayFn: async () => {},
       toolCircuitBreakerOverrides: {
         tap: { warningThreshold: 1, blockThreshold: 2 },
@@ -96,7 +95,6 @@ describe('AgentLoop circuit-breaker integration', () => {
     const loop = new AgentLoop({
       provider,
       maxSteps: 20,
-      settleMs: 0,
       delayFn: async () => {},
       consecutiveCircuitBreakerLimit: 2,
       toolCircuitBreakerOverrides: {

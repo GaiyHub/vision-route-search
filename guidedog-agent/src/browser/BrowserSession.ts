@@ -52,6 +52,15 @@ function timeoutOf(value?: number): number {
   return Math.max(500, Math.min(MAX_TIMEOUT_MS, Math.round(value as number)));
 }
 
+function isActiveWebPage(url: string): boolean {
+  try {
+    const protocol = new URL(url).protocol;
+    return protocol === 'http:' || protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
 function keywordList(value?: string[] | string): string[] {
   if (Array.isArray(value)) return value.map(String).map((v) => v.trim()).filter(Boolean);
   return typeof value === 'string' ? value.split(/\s+/).map((v) => v.trim()).filter(Boolean) : [];
@@ -199,8 +208,17 @@ export class BrowserSessionController {
         }
         case 'scroll_and_collect':
           return await this.scrollAndCollect(input, tabId, timeoutMs);
-        case 'wait_for_dom_stable':
+        case 'wait_for_dom_stable': {
+          const pageURL = host.getMeta(tabId).url;
+          if (!isActiveWebPage(pageURL)) {
+            return {
+              ok: false,
+              error: 'browser_wait 仅适用于豆泡内置浏览器中已打开的 http/https 网页',
+              hint: '不能用于等待支付宝、淘宝、京东等 Android App 内的 WebView；请继续使用 ui_* 工具观察或操作手机界面。',
+            };
+          }
           return await this.waitForStable(tabId, timeoutMs);
+        }
         case 'execute_js': {
           if (!input.script?.trim()) return { ok: false, error: 'execute_js 需要 script' };
           return this.fromEvaluation(action, tabId, await host.evaluate(executeJavaScriptScript(input.script), timeoutMs, tabId));

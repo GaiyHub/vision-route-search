@@ -28,13 +28,18 @@ describe('unified general-assistant tool guidance', () => {
     expect(descriptionOf('ui_tap')).toContain('accepted=true');
     expect(PHONE_TOOLS.find((tool) => tool.name === 'ui_tap')?.parameters.properties.text.description)
       .toContain('不识别图像文字');
-    expect(descriptionOf('ui_fill')).toContain('支持通过 focused、ref、文本、内容描述或资源 ID 定位');
+    expect(descriptionOf('ui_fill')).toContain('ref 模式');
+    expect(descriptionOf('ui_fill')).toContain('focused 模式');
+    expect(descriptionOf('ui_fill')).toContain('不会查找、点击或自动聚焦输入框');
+    expect(descriptionOf('ui_fill')).not.toContain('文本、内容描述或资源 ID');
     expect(descriptionOf('ui_fill')).not.toContain('无需先查询节点');
     expect(descriptionOf('ui_fill')).toContain('submit=true');
-    expect(descriptionOf('ui_inspect')).toContain('Android 无障碍结构');
-    expect(descriptionOf('ui_inspect')).toContain('不包含屏幕图像');
-    expect(descriptionOf('ui_inspect')).toContain('定位标准控件');
+    expect(descriptionOf('ui_inspect')).toContain('页面的基本结构信息');
+    expect(descriptionOf('ui_inspect')).toContain('不传输屏幕图像');
+    expect(descriptionOf('ui_inspect')).toContain('了解当前页面内容');
+    expect(descriptionOf('ui_inspect')).toContain('定位具有无障碍语义的可操作目标');
     expect(descriptionOf('ui_inspect')).toContain('selected、checked、enabled');
+    expect(descriptionOf('ui_inspect')).toContain('无法提供颜色、图标外观、图片内容、自定义绘制内容或纯视觉文字');
     expect(descriptionOf('ui_screenshot')).toContain('屏幕图像');
     expect(descriptionOf('ui_screenshot')).toContain('采集时的 Android 无障碍结构');
     expect(descriptionOf('ui_screenshot')).not.toContain('图像尺寸');
@@ -47,15 +52,16 @@ describe('unified general-assistant tool guidance', () => {
     expect(descriptionOf('ui_screenshot')).not.toContain('无需重复截图');
     expect(descriptionOf('ui_find_node')).toContain('matchCount');
     expect(descriptionOf('ui_find_node')).toContain('matches');
-    expect(descriptionOf('ui_find_node')).toContain('ui_tap 或 ui_fill');
+    expect(descriptionOf('ui_find_node')).toContain('取得其 ref 后交给 ui_fill');
     expect(PHONE_TOOLS.map((tool) => tool.name)).not.toContain('ui_find_all_nodes');
     expect(PHONE_TOOLS.map((tool) => tool.name)).toContain('ui_get_node');
     expect(PHONE_TOOLS.map((tool) => tool.name)).not.toContain('ui_get_node_text');
     expect(PHONE_TOOLS.map((tool) => tool.name)).not.toContain('ui_get_bounds');
     expect(PHONE_TOOLS.map((tool) => tool.name)).not.toContain('ui_type_text');
-    expect(descriptionOf('wait')).toContain('异步加载或动画');
-    expect(descriptionOf('wait')).toContain('重新观察或更换策略');
-    expect(descriptionOf('wait')).toContain('不适合连续延长等待');
+    expect(descriptionOf('wait')).toContain('窗口根节点摘要持续稳定');
+    expect(descriptionOf('wait')).toContain('发生变化后重新计时');
+    expect(descriptionOf('wait')).toContain('仅返回实际等待时长 waitedMs');
+    expect(descriptionOf('wait')).not.toContain('timedOut');
     expect(descriptionOf('wait')).not.toContain('browser_use');
   });
 
@@ -87,6 +93,29 @@ describe('unified general-assistant tool guidance', () => {
       .toContain('本次截图');
     expect(tap.parameters.properties.x.description).toContain('coordinate 模式必填');
     expect(tap.parameters.properties.observationId.description).toContain('界面变化后失效');
+  });
+
+  test('serial orchestration policy has one steady-state owner', () => {
+    const executeTools = descriptionOf('execute_tools');
+    const wait = descriptionOf('wait');
+
+    expect(executeTools).toContain('按声明顺序串行执行 2～8 个可预先确定参数的原子工具');
+    expect(executeTools).toContain('每个子调用独立校验参数、风险、授权与熔断');
+    expect(executeTools).toContain('第一个需要读取中间结果才能确定参数的动作之前结束');
+    expect(executeTools).not.toContain('整个序列最长 30 秒');
+    expect(executeTools).toContain('不得嵌套 execute_tools');
+    expect(executeTools).toContain('正例：已知输入框 ref');
+    expect(executeTools).toContain('"name":"ui_fill"');
+    expect(executeTools).toContain('"name":"ui_press_enter"');
+    expect(executeTools).toContain('"name":"wait","arguments":{}');
+    expect(executeTools).toContain('"name":"ui_inspect"');
+    expect(executeTools).not.toContain('反例：');
+    expect(executeTools).not.toContain('5000');
+    expect(executeTools).not.toContain('减少不需要中间推理的往返');
+    expect(executeTools).not.toContain('UI 动作后需要等待');
+    expect(executeTools).not.toContain('若后续动作依赖');
+    expect(executeTools).not.toContain('不可用或被禁用');
+    expect(wait).not.toContain('execute_tools');
   });
 
   test('scrolling tools describe their own distinct capabilities', () => {

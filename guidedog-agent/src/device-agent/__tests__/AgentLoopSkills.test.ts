@@ -87,6 +87,8 @@ describe('experience library (skills)', () => {
     expect(systemMessages[0].content).not.toContain('测试任务');
     expect(systemMessages[0].content).not.toContain('CUSTOM_RULE');
     expect(systemMessages[0].content).not.toContain('请根据当前屏幕与任务进度决定下一步');
+    expect(messagesList[0].map((message) => message.content).join('\n'))
+      .not.toContain('2～8 个无需读取中间结果的动作可使用 execute_tools 串行编排');
 
     const runtime = runtimeContext(messagesList[0]);
     expect(runtime).not.toContain('测试任务');
@@ -130,7 +132,6 @@ describe('experience library (skills)', () => {
     const loop = new AgentLoop({
       provider,
       maxSteps: 3,
-      settleMs: 0,
       skills: {
         catalog: skills.catalog,
         load: skills.load,
@@ -149,7 +150,6 @@ describe('experience library (skills)', () => {
     const loop = new AgentLoop({
       provider,
       maxSteps: 3,
-      settleMs: 0,
       skills: {
         catalog: skills.catalog,
         load: skills.load,
@@ -183,7 +183,6 @@ describe('experience library (skills)', () => {
     const loop = new AgentLoop({
       provider,
       maxSteps: 3,
-      settleMs: 0,
       skills: {
         catalog: skills.catalog,
         load: skills.load,
@@ -201,7 +200,7 @@ describe('experience library (skills)', () => {
 
   test('no skills configured → no read_skill tool and no catalog block', async () => {
     const { provider, messagesList, toolsList } = makeProvider([taskComplete]);
-    const loop = new AgentLoop({ provider, maxSteps: 3, settleMs: 0 });
+    const loop = new AgentLoop({ provider, maxSteps: 3 });
     await collectEvents(loop);
 
     expect(toolNames(toolsList[0])).not.toContain(READ_SKILL_TOOL_NAME);
@@ -213,7 +212,6 @@ describe('experience library (skills)', () => {
     const loop = new AgentLoop({
       provider,
       maxSteps: 3,
-      settleMs: 0,
       toolFilter: ['ui_tap'],
       skills: {
         catalog: skills.catalog,

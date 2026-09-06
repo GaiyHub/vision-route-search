@@ -17,8 +17,10 @@ export interface PendingConfirm {
   risk: RiskLevel;
   /** Why the model flagged this as risky. */
   reason?: string;
-  resolve: (choice: 'execute' | 'reject') => void;
+  resolve: (choice: ConfirmChoice) => void;
 }
+
+export type ConfirmChoice = 'execute' | 'reject' | 'timeout';
 
 let _pending: PendingConfirm | null = null;
 let _listeners: Array<(pending: PendingConfirm | null) => void> = [];
@@ -55,8 +57,8 @@ export function subscribeConfirm(
  * Resolves 'execute' or 'reject'.
  */
 export function requestUserConfirm(
-  opts: { action: string; risk: RiskLevel; reason?: string },
-): Promise<'execute' | 'reject'> {
+  opts: { action: string; risk: RiskLevel; reason?: string; timeoutResult?: 'reject' | 'timeout' },
+): Promise<ConfirmChoice> {
   return new Promise((resolve) => {
     const pending: PendingConfirm = {
       id: uid(),
@@ -75,7 +77,7 @@ export function requestUserConfirm(
         _pending = null;
         notify();
       }
-      resolve('reject');
+      resolve(opts.timeoutResult ?? 'reject');
     }, RISK_CONFIRM_TIMEOUT_MS);
   });
 }

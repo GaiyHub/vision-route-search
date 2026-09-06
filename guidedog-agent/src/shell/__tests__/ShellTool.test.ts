@@ -27,7 +27,8 @@ describe('shell_execute tool', () => {
     expect(SHELL_EXECUTE_TOOL.description).toContain('不是可独立调用的工具名');
     expect(SHELL_EXECUTE_TOOL.description).toContain('shell_execute(command="android-location current")');
     expect(SHELL_EXECUTE_TOOL.description).toContain('不要把 `android-location current`');
-    expect(SHELL_EXECUTE_TOOL.description).toContain('优先使用本工具而非 UI 模拟');
+    expect(SHELL_EXECUTE_TOOL.description).toContain('返回退出状态、标准输出、耗时及超时状态');
+    expect(SHELL_EXECUTE_TOOL.description).not.toContain('优先使用本工具而非 UI 模拟');
     expect(SHELL_EXECUTE_TOOL.description).toContain('android-location current');
     expect(SHELL_EXECUTE_TOOL.description).toContain('android-communicate sms --to <号码>');
     expect(SHELL_EXECUTE_TOOL.description).toContain('打开并预填短信，不发送');
@@ -35,7 +36,10 @@ describe('shell_execute tool', () => {
     expect(SHELL_EXECUTE_TOOL.description).toContain('在系统时钟中直接创建闹钟');
     expect(SHELL_EXECUTE_TOOL.description).toContain('部分系统可能打开预填编辑页');
     expect(SHELL_EXECUTE_TOOL.description).toContain('`open` 仅打开已有闹钟列表');
-    expect(SHELL_EXECUTE_TOOL.description).toContain('android-map search --query <地点>');
+    expect(SHELL_EXECUTE_TOOL.description).toContain('android-map search --query <地点或关键词>');
+    expect(SHELL_EXECUTE_TOOL.description).toContain('返回值只表示打开请求是否被系统接受');
+    expect(SHELL_EXECUTE_TOOL.description).toContain('不返回页面内容');
+    expect(SHELL_EXECUTE_TOOL.description).not.toContain('不得根据距离或常识估算');
     expect(SHELL_EXECUTE_TOOL.description).toContain('android-calendar insert');
     expect(SHELL_EXECUTE_TOOL.description).toContain('android-clipboard get|set');
     expect(SHELL_EXECUTE_TOOL.description).toContain('android-speak <文本>');

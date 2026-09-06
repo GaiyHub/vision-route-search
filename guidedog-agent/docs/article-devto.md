@@ -192,7 +192,6 @@ async *run(task: string): AsyncGenerator<AgentEvent> {
 
       yield { type: 'action', tool: call.name, args: call.arguments }
       await this.executeToolCall(call)
-      await delay(this.options.settleMs ?? 500)
     }
 
     screenState = await this.readScreen()

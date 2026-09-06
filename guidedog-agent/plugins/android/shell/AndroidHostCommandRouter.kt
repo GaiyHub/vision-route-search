@@ -677,7 +677,18 @@ These commands only open and prefill the corresponding Android app. They do
 not send a message, place a call, or commit any external action.
 """
 
-    private fun mapHelp() = """android-map — open a location in an installed map app
+    private fun mapHelp() = """android-map — request place search or coordinate display in an installed map app
+
+This is an operation command sent to a map app.
+search passes a query to an installed map app to initiate a place search.
+show passes coordinates and an optional label to request display of that location.
+The receiving map app determines the actual page shown.
+The command result only reports whether Android accepted the launch request;
+it does not return page content.
+Acceptance does not prove that the target page has loaded or the operation
+achieved its intended effect. After executing the command, observe the map page
+yourself to verify the actual outcome, then continue interacting with the app
+and read the information needed for the user's goal.
 
 Usage:
   android-map search --query <place-or-keywords>

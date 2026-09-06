@@ -96,6 +96,19 @@ describe('configurationTransfer', () => {
     });
     expect(document.generalSettings).not.toHaveProperty('tavilyApiKey');
     expect(document.modelSettings).not.toHaveProperty('toolConfigurationOverrides');
+    expect(document.generalSettings.screenshotScale).toBe(0.6);
+  });
+
+  it('imports configuration backups created before screenshot scale was added', () => {
+    const document = JSON.parse(serializeConfigurationExport());
+    delete document.generalSettings.screenshotScale;
+    document.generalSettings.screenshotDownscalingEnabled = false;
+
+    const parsed = parseConfigurationImport(JSON.stringify(document));
+
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok || parsed.value.kind !== 'configuration') return;
+    expect(parsed.value.bundle.generalSettings.screenshotScale).toBe(1);
   });
 
   it('validates the complete document before applying it to existing stores', async () => {

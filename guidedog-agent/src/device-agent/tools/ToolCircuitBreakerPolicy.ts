@@ -89,6 +89,7 @@ const TOOL_ALIASES: Record<string, string> = {
 };
 
 const SAFETY_EXEMPT_TOOLS = new Set([
+  'execute_tools',
   'task_complete',
   'task_failed',
   'todo_create',
@@ -102,6 +103,7 @@ const SAFETY_EXEMPT_TOOLS = new Set([
 const NON_CONFIGURABLE_CIRCUIT_BREAKER_TOOLS = new Set(['file_read']);
 
 const META: Record<string, { label: string; family: ToolActionFamily; description?: string }> = {
+  execute_tools: { label: '批量串行执行', family: 'exempt' },
   ui_tap: { label: '点击', family: 'navigation' },
   ui_fill: { label: '填写文本', family: 'input' },
   ui_long_press: { label: '长按', family: 'navigation' },
