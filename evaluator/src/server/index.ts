@@ -14,6 +14,10 @@ import { SampleDetailsStore } from './sampleDetailsStore.js';
 import { PlanRepository } from '../plans/repository.js';
 import { PlanReportStore } from '../reports/planReport.js';
 import { JudgeService } from '../judge/service.js';
+import { AdbDeviceMirrorService } from './deviceMirror.js';
+import { StandaloneScrcpyCaptureProvider } from '../mirror/scrcpyCapture.js';
+import { FfmpegRtpBridgeFactory } from '../mirror/rtpBridge.js';
+import { SharedMirrorSessionManager } from '../mirror/sessionManager.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const datasets = new DatasetCatalog(join(root, 'datasets'));
@@ -25,6 +29,10 @@ const runtime = process.env.DOUPAO_EVALUATOR_RUNTIME === 'mock'
 const judge = JudgeService.fromEnvironment();
 const runs = new RunManager(dataRoot, datasets, runtime, judge);
 const plans = new PlanRepository(dataRoot, datasets);
+const mirrorSessions = new SharedMirrorSessionManager(
+  new StandaloneScrcpyCaptureProvider(),
+  new FfmpegRtpBridgeFactory(),
+);
 const app = createApp({
   datasets,
   runtime,
@@ -33,6 +41,8 @@ const app = createApp({
   plans,
   reports: new PlanReportStore(dataRoot),
   judge,
+  mirror: new AdbDeviceMirrorService(adb),
+  mirrorSessions,
 });
 const dist = join(root, 'dist');
 try {

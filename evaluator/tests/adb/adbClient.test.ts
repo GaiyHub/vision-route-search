@@ -1,4 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
 import requestFixture from '../../../specs/pc-batch-evaluation/fixtures/eval-request-v1.json' with { type: 'json' };
 import statusFixture from '../../../specs/pc-batch-evaluation/fixtures/eval-status-v1.json' with { type: 'json' };
 import { AdbClient } from '../../src/adb/adbClient.js';
@@ -16,6 +19,9 @@ class FakeProcessAdapter implements ProcessAdapter {
     return response;
   }
 }
+
+const roots: string[] = [];
+afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))));
 
 const ok = (stdout = ''): ProcessResult => ({ exitCode: 0, stdout, stderr: '' });
 
@@ -91,6 +97,32 @@ describe('ADB 请求边界', () => {
       code: 'REQUEST_REJECTED',
     });
     expect(adapter.requests).toHaveLength(1);
+  });
+
+  it('通过 adb pull 将 OTel 直接落盘并执行独立大小限制', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'doupao-adb-pull-'));
+    roots.push(root);
+    await mkdir(root, { recursive: true });
+    const destination = join(root, 'otel.jsonl');
+    const requests: ProcessRequest[] = [];
+    const adapter: ProcessAdapter = {
+      async execute(processRequest) {
+        requests.push(processRequest);
+        await writeFile(destination, 'streamed-otel');
+        return ok('1 file pulled');
+      },
+    };
+    const client = new AdbClient(adapter);
+    const request = evalRequestV1Schema.parse(requestFixture.request);
+    const fileName = `otel-${'a'.repeat(32)}.jsonl`;
+
+    await client.pullEvaluationArtifact('serial-1', request, fileName, destination, 32);
+
+    expect(await readFile(destination, 'utf8')).toBe('streamed-otel');
+    expect(requests[0]?.args).toEqual(expect.arrayContaining(['-s', 'serial-1', 'pull', destination]));
+    await expect(client.pullEvaluationArtifact('serial-1', request, fileName, destination, 4)).rejects.toMatchObject({
+      code: 'EVALUATION_ARTIFACTS_UNAVAILABLE',
+    });
   });
 
   it('采集最终截图、UI 层级和前台 Activity', async () => {

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { readdir } from 'node:fs/promises';
+import { readdir, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { DatasetCatalog } from '../server/datasetCatalog.js';
 import { readValidatedJson, writeJsonAtomic } from '../storage/atomicFile.js';
@@ -72,6 +72,18 @@ export class PlanRepository {
     return plan;
   }
 
+  async delete(planId: string): Promise<void> {
+    await this.get(planId);
+    try {
+      await unlink(this.path(planId));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        throw new PlanRepositoryError('PLAN_NOT_FOUND', `评测计划不存在：${planId}`);
+      }
+      throw error;
+    }
+  }
+
   async list(input: { cursor?: string | undefined; limit: number }): Promise<PlanPage> {
     let entries;
     try {
@@ -124,4 +136,3 @@ export class PlanRepository {
     }
   }
 }
-

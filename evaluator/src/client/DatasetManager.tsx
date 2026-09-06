@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { requestJson } from './api.js';
 
 export interface ManagedSample {
   id: string;
@@ -24,11 +25,7 @@ interface DraftSample extends ManagedSample { assertionsText: string; evidenceTe
 interface Draft extends Omit<ManagedDataset, 'samples'> { samples: DraftSample[] }
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, { ...init, headers: { 'content-type': 'application/json', ...init?.headers } });
-  if (response.status === 204) return undefined as T;
-  const body = await response.json() as T & { error?: { message?: string } };
-  if (!response.ok) throw new Error(body.error?.message ?? `请求失败：${response.status}`);
-  return body;
+  return requestJson<T>(url, init);
 }
 
 function toDraft(dataset: ManagedDataset): Draft {
@@ -137,7 +134,7 @@ export function DatasetManager({
       <button className="danger" disabled={!selected} onClick={() => void remove()}>删除</button>
     </div>
     {draft && <div className="modal-backdrop"><section className="dataset-modal" role="dialog" aria-label="评测集编辑器">
-      <div className="modal-head"><div><h2>{originalId ? '编辑评测集' : '新建评测集'}</h2><p>配置样本输入、确定性断言与 LLM Judge 标准</p></div><button onClick={() => setDraft(undefined)}>关闭</button></div>
+      <div className="modal-head"><div><h2>{originalId ? '编辑评测集' : '新建评测集'}</h2><p>配置样本输入、确定性断言与 AI 评分标准</p></div><button onClick={() => setDraft(undefined)}>关闭</button></div>
       {error && <div className="error">{error}</div>}
       <div className="dataset-fields">
         <label>评测集 ID<input value={draft.id} disabled={Boolean(originalId)} onChange={(event) => setDraft({ ...draft, id: event.target.value })}/></label>
@@ -155,7 +152,7 @@ export function DatasetManager({
         </div>
         <label>输入指令<textarea rows={3} value={sample.instruction} onChange={(event) => updateSample(index, { instruction: event.target.value })}/></label>
         <label>断言（JSON 数组）<textarea className="code-editor" rows={6} value={sample.assertionsText} onChange={(event) => updateSample(index, { assertionsText: event.target.value })}/></label>
-        <label className="inline-check"><input type="checkbox" checked={sample.judge?.enabled ?? false} onChange={(event) => updateSample(index, { judge: event.target.checked ? (sample.judge ?? { enabled: true, rubric: '', threshold: .8, evidence: ['finalResponse'] }) : undefined })}/>启用 LLM-as-Judge</label>
+        <label className="inline-check"><input type="checkbox" checked={sample.judge?.enabled ?? false} onChange={(event) => updateSample(index, { judge: event.target.checked ? (sample.judge ?? { enabled: true, rubric: '', threshold: .8, evidence: ['finalResponse'] }) : undefined })}/>启用 AI 结果评审</label>
         {sample.judge?.enabled && <div className="judge-fields"><label>评分标准<textarea rows={2} value={sample.judge.rubric} onChange={(event) => updateSample(index, { judge: { ...sample.judge!, rubric: event.target.value } })}/></label><label>通过阈值<input type="number" min="0" max="1" step="0.05" value={sample.judge.threshold} onChange={(event) => updateSample(index, { judge: { ...sample.judge!, threshold: Number(event.target.value) } })}/></label><label>证据（逗号分隔）<input value={sample.evidenceText} onChange={(event) => updateSample(index, { evidenceText: event.target.value })}/></label></div>}
       </article>)}
       <div className="modal-actions"><button onClick={() => setDraft(undefined)}>取消</button><button className="primary" disabled={saving} onClick={() => void save()}>{saving ? '保存中…' : '保存评测集'}</button></div>

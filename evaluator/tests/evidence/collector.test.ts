@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -86,6 +86,7 @@ describe('EvidenceCollector', () => {
     ]);
     const adb = {
       readEvaluationArtifact: vi.fn(async (_serial, _request, name) => artifacts.get(name)),
+      pullEvaluationArtifact: vi.fn(async (_serial, _request, name, destination) => writeFile(destination, artifacts.get(name)!)),
       captureScreenshot: vi.fn(async () => Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])),
       dumpUiHierarchy: vi.fn(async () => '<?xml version="1.0"?><hierarchy text="完成"/>'),
       readForegroundActivity: vi.fn(async () => ({ packageName: 'com.example.app', activityName: '.MainActivity' })),
@@ -124,7 +125,10 @@ describe('EvidenceCollector', () => {
       [`otel-${traceId}.jsonl`, otel.replace('request-1', 'request-other')],
       [`todo-${traceId}.json`, todo],
     ]);
-    const adb = { readEvaluationArtifact: vi.fn(async (_serial, _request, name) => artifacts.get(name)) } as unknown as AdbClient;
+    const adb = {
+      readEvaluationArtifact: vi.fn(async (_serial, _request, name) => artifacts.get(name)),
+      pullEvaluationArtifact: vi.fn(async (_serial, _request, name, destination) => writeFile(destination, artifacts.get(name)!)),
+    } as unknown as AdbClient;
     await expect(new EvidenceCollector(adb, root).collect('serial-1', request, status)).rejects.toMatchObject({
       code: 'EVIDENCE_CORRELATION_INVALID',
     });

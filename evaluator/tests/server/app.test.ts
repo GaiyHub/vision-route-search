@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createApp } from '../../src/server/app.js';
 import { DatasetCatalog } from '../../src/server/datasetCatalog.js';
 import { MockEvaluationRuntime } from '../../src/server/mockRuntime.js';
@@ -10,6 +10,8 @@ import { SampleDetailsStore } from '../../src/server/sampleDetailsStore.js';
 import { PlanRepository } from '../../src/plans/repository.js';
 import { PlanReportStore } from '../../src/reports/planReport.js';
 import { JudgeService } from '../../src/judge/service.js';
+import type { DeviceMirrorService } from '../../src/server/deviceMirror.js';
+import type { MirrorSessionService } from '../../src/mirror/sessionManager.js';
 
 const roots: string[] = [];
 
@@ -18,6 +20,72 @@ afterEach(async () => {
 });
 
 describe('本地评测 API', () => {
+  it('独立列出安卓设备并返回只读镜像帧', async () => {
+    const dataRoot = await mkdtemp(join(tmpdir(), 'doupao-mirror-api-'));
+    roots.push(dataRoot);
+    const datasets = new DatasetCatalog(resolve(process.cwd(), 'datasets'));
+    const runtime = new MockEvaluationRuntime(0);
+    const mirror: DeviceMirrorService = {
+      listDevices: async () => [{ serial: 'emulator-5554', model: 'Pixel 8', androidVersion: '15', state: 'ONLINE', canMirror: true }],
+      captureFrame: async () => Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+    };
+    const app = createApp({
+      datasets,
+      runtime,
+      runs: new RunManager(dataRoot, datasets, runtime),
+      details: new SampleDetailsStore(dataRoot),
+      plans: new PlanRepository(dataRoot, datasets),
+      reports: new PlanReportStore(dataRoot),
+      mirror,
+    });
+
+    const devices = await app.inject({ method: 'GET', url: '/api/android/devices' });
+    expect(devices.json()).toMatchObject({ devices: [{ serial: 'emulator-5554', state: 'ONLINE', canMirror: true }] });
+    const frame = await app.inject({ method: 'GET', url: '/api/android/devices/emulator-5554/frame' });
+    expect(frame.statusCode).toBe(200);
+    expect(frame.headers['content-type']).toBe('image/png');
+    expect(frame.headers['cache-control']).toContain('no-store');
+    await app.close();
+  });
+
+  it('创建 WebRTC 镜像订阅、交换 SDP 并释放资源', async () => {
+    const dataRoot = await mkdtemp(join(tmpdir(), 'doupao-stream-api-'));
+    roots.push(dataRoot);
+    const datasets = new DatasetCatalog(resolve(process.cwd(), 'datasets'));
+    const runtime = new MockEvaluationRuntime(0);
+    const release = vi.fn(async () => undefined);
+    const mirrorSessions: MirrorSessionService = {
+      create: async (deviceSerial) => ({
+        schemaVersion: 1, sessionId: 'mirror-11111111-1111-4111-8111-111111111111',
+        subscriptionId: 'subscription-22222222-2222-4222-8222-222222222222', deviceSerial,
+        state: 'STREAMING', transport: 'WEBRTC', createdAt: '2026-09-04T00:00:00.000Z', subscriberCount: 1,
+      }),
+      createPeerConnection: async () => ({
+        schemaVersion: 1, peerConnectionId: 'peer-33333333-3333-4333-8333-333333333333',
+        answer: { type: 'answer', sdp: 'v=0\r\n' },
+      }),
+      release,
+      close: async () => undefined,
+    };
+    const app = createApp({
+      datasets, runtime, runs: new RunManager(dataRoot, datasets, runtime),
+      details: new SampleDetailsStore(dataRoot), plans: new PlanRepository(dataRoot, datasets),
+      reports: new PlanReportStore(dataRoot), mirrorSessions,
+    });
+    const created = await app.inject({ method: 'POST', url: '/api/android/mirror-sessions', payload: { schemaVersion: 1, deviceSerial: 'device-1' } });
+    expect(created.statusCode).toBe(201);
+    const session = created.json();
+    const negotiated = await app.inject({
+      method: 'POST', url: `/api/android/mirror-sessions/${session.sessionId}/peer-connections`,
+      payload: { schemaVersion: 1, subscriptionId: session.subscriptionId, offer: { type: 'offer', sdp: 'v=0\r\n' } },
+    });
+    expect(negotiated.statusCode).toBe(201);
+    expect(negotiated.json()).toMatchObject({ answer: { type: 'answer' } });
+    expect((await app.inject({ method: 'DELETE', url: `/api/android/mirror-sessions/${session.sessionId}/subscriptions/${session.subscriptionId}` })).statusCode).toBe(204);
+    expect(release).toHaveBeenCalledWith(session.sessionId, session.subscriptionId);
+    await app.close();
+  });
+
   it('通过 Mock 设备完成评测集到 Run 结果的闭环', async () => {
     const dataRoot = await mkdtemp(join(tmpdir(), 'doupao-webui-'));
     roots.push(dataRoot);
@@ -193,6 +261,10 @@ describe('本地评测 API', () => {
     expect(report.json()).toMatchObject({ planId, runId, summary: { total: 1, passed: 1 }, samples: [{ attemptNumber: 2 }] });
     const planRuns = await app.inject({ method: 'GET', url: `/api/plans/${planId}/runs` });
     expect(planRuns.json()).toMatchObject({ runs: [{ runId, planId }] });
+    const deleted = await app.inject({ method: 'DELETE', url: `/api/plans/${planId}` });
+    expect(deleted.statusCode).toBe(204);
+    expect((await app.inject({ method: 'GET', url: `/api/plans/${planId}` })).statusCode).toBe(404);
+    expect((await app.inject({ method: 'GET', url: `/api/runs/${runId}` })).json()).toMatchObject({ runId, planId });
     await app.close();
   });
 

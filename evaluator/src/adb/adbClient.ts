@@ -1,4 +1,5 @@
 import { evalStatusV1Schema, encodeEvalRequestPayload, type EvalRequestV1, type EvalStatusV1 } from '../contracts/evaluation.js';
+import { stat, unlink } from 'node:fs/promises';
 import { AdbRunnerError } from './errors.js';
 import { parseAdbDevices, type AdbDevice } from './devices.js';
 import type { ProcessAdapter, ProcessResult } from './processAdapter.js';
@@ -7,6 +8,7 @@ const DEFAULT_PACKAGE = 'com.watchdog.agent';
 const DEFAULT_COMPONENT = `${DEFAULT_PACKAGE}/.EvaluationEntryActivity`;
 const EVALUATE_ACTION = `${DEFAULT_PACKAGE}.action.EVALUATE`;
 const CANCEL_ACTION = `${DEFAULT_PACKAGE}.action.CANCEL_EVALUATION`;
+export const OTEL_ARTIFACT_MAX_BYTES = 32 * 1024 * 1024;
 
 export interface AdbClientOptions {
   adbPath?: string;
@@ -172,6 +174,32 @@ export class AdbClient {
     if (optional && /No such file|does not exist/i.test(`${result.stdout}\n${result.stderr}`)) return undefined;
     throw new AdbRunnerError('EVALUATION_ARTIFACTS_UNAVAILABLE', `无法读取评测产物：${fileName}`, true, {
       stderr: result.stderr,
+    });
+  }
+
+  async pullEvaluationArtifact(
+    serial: string,
+    request: Pick<EvalRequestV1, 'runId' | 'sampleId' | 'requestId'>,
+    fileName: string,
+    destinationPath: string,
+    maxBytes = OTEL_ARTIFACT_MAX_BYTES,
+  ): Promise<void> {
+    if (!/^otel-[a-f0-9]{32}\.jsonl$/.test(fileName)) {
+      throw new AdbRunnerError('REQUEST_REJECTED', '仅允许流式拉取 OTel 评测产物', false);
+    }
+    const remotePath = `/sdcard/Android/data/${this.packageName}/files/evaluation/`
+      + `${request.runId}/${request.sampleId}/${request.requestId}/${fileName}`;
+    const result = await this.executeForDevice(serial, ['pull', remotePath, destinationPath]);
+    if (result.exitCode !== 0) {
+      throw new AdbRunnerError('EVALUATION_ARTIFACTS_UNAVAILABLE', `无法读取评测产物：${fileName}`, true, {
+        stderr: result.stderr,
+      });
+    }
+    const fileSize = (await stat(destinationPath)).size;
+    if (fileSize <= maxBytes) return;
+    await unlink(destinationPath).catch(() => undefined);
+    throw new AdbRunnerError('EVALUATION_ARTIFACTS_UNAVAILABLE', `OTel 评测产物超过 ${maxBytes} 字节限制`, false, {
+      fileName, fileSize, maxBytes,
     });
   }
 

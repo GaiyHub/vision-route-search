@@ -4,25 +4,22 @@ import { DatasetManager, type ManagedDataset } from './DatasetManager.js';
 import { PlanConsole } from './PlanConsole.js';
 import { RunConsole } from './RunConsole.js';
 import { JudgeSettings, type JudgePublicConfig } from './JudgeSettings.js';
+import { DeviceMirror } from './DeviceMirror.js';
+import { requestJson } from './api.js';
 import type { ApiClient, Device, EvaluationPlanSummary, EvaluationRun } from './types.js';
 import './styles.css';
 import './theme.css';
 
-type Page = 'plans' | 'datasets' | 'judge';
+type Page = 'plans' | 'datasets' | 'settings';
 type PlanView = 'overview' | 'runs';
 const terminalRuns = new Set(['COMPLETED', 'CANCELLED', 'INTERRUPTED']);
 const pageMeta: Record<Page, { label: string; description: string; icon: string }> = {
   plans: { label: '评测计划', description: '组织评测集、设备与执行策略', icon: '▣' },
-  datasets: { label: '评测集', description: '管理样本、断言与 Judge 标准', icon: '▤' },
-  judge: { label: 'Judge', description: '配置 LLM-as-Judge 评测能力', icon: '✦' },
+  datasets: { label: '评测集', description: '管理样本、断言与 AI 评审标准', icon: '▤' },
+  settings: { label: '配置', description: '管理评测平台的模型与运行配置', icon: '⚙' },
 };
 
-const api: ApiClient = async <T,>(url: string, init?: RequestInit): Promise<T> => {
-  const response = await fetch(url, { ...init, headers: { 'content-type': 'application/json', ...init?.headers } });
-  const body = await response.json() as T & { error?: { message?: string } };
-  if (!response.ok) throw new Error(body.error?.message ?? `请求失败：${response.status}`);
-  return body;
-};
+const api: ApiClient = requestJson;
 
 export function App() {
   const [page, setPage] = useState<Page>('plans');
@@ -72,6 +69,7 @@ export function App() {
   const updateRun = (run: EvaluationRun) => {
     setRuns((current) => [run, ...current.filter((item) => item.runId !== run.runId)]);
     setSelectedRunId(run.runId);
+    setError('');
   };
   const reloadPlans = async (preferredId?: string) => {
     const result = await api<{ plans: EvaluationPlanSummary[] }>('/api/plans?limit=100');
@@ -92,7 +90,7 @@ export function App() {
 
   return <main className="shell">
     <header className="app-topbar">
-      <div className="brand"><span className="brand-mark">D</span><strong>豆泡评测</strong></div>
+      <div className="topbar-leading"><div className="brand"><span className="brand-mark">D</span><strong>豆泡评测</strong></div><DeviceMirror api={api}/></div>
       <div className="workspace-switcher"><small>工作区</small><strong>移动智能体评测台</strong><span>⌄</span></div>
       <span className="badge">● {runtimeLabel}</span>
     </header>
@@ -107,7 +105,7 @@ export function App() {
       <section className="workspace-stage">
         <div className="workspace-bar"><div><span>工作区&nbsp; / &nbsp;</span><strong>{pageMeta[page].label}</strong></div><p>{page === 'plans' && planView === 'runs' ? '查看当前计划的运行批次、指标与轨迹' : pageMeta[page].description}</p></div>
         <div className="workspace-content">
-          {error && <div className="error">{error}</div>}{loading ? <div className="panel empty"><p>加载中…</p></div> : page === 'plans' ? <><nav className="plan-subnav" aria-label="评测计划详情导航"><button className={planView === 'overview' ? 'active' : ''} onClick={() => setPlanView('overview')}>计划概览</button><button className={planView === 'runs' ? 'active' : ''} onClick={() => setPlanView('runs')}>执行记录<span>{selectedPlanRuns.length}</span></button></nav>{planView === 'overview' ? <PlanConsole api={api} devices={devices} datasets={datasets} plans={plans} selectedPlanId={selectedPlanId} judgeConfigured={judgeConfigured} onSelect={setSelectedPlanId} onPlansChanged={reloadPlans} onRunStarted={onRunStarted}/> : <RunConsole api={api} runs={selectedPlanRuns} selectedRun={selectedRun} onSelect={setSelectedRunId} onRunUpdated={updateRun}/>}</> : page === 'judge' ? <JudgeSettings api={api} onConfigured={setJudgeConfigured}/> : <section className="dataset-workspace"><article className="panel"><div className="section-head"><div><h2>评测集管理</h2><p>维护样本、断言与 Judge 标准，不在此发起执行</p></div></div><label>当前评测集<select value={selectedDatasetId} onChange={(event) => setSelectedDatasetId(event.target.value)}>{datasets.map((dataset) => <option key={dataset.id} value={dataset.id}>{dataset.name}</option>)}</select></label><DatasetManager datasets={datasets} selectedId={selectedDatasetId} onChanged={reloadDatasets}/>{selectedDataset && <div className="dataset-overview"><strong>{selectedDataset.name}</strong><p>{selectedDataset.description}</p>{selectedDataset.samples.map((sample) => <div className="sample readonly" key={sample.id}><span><strong>{sample.name ?? sample.id}</strong><small>{sample.instruction}</small></span>{sample.judge?.enabled && <em>Judge</em>}</div>)}</div>}</article></section>}
+          {error && <div className="error">{error}</div>}{loading ? <div className="panel empty"><p>加载中…</p></div> : page === 'plans' ? <><nav className="plan-subnav" aria-label="评测计划详情导航"><button className={planView === 'overview' ? 'active' : ''} onClick={() => setPlanView('overview')}>计划概览</button><button className={planView === 'runs' ? 'active' : ''} onClick={() => setPlanView('runs')}>执行记录<span>{selectedPlanRuns.length}</span></button></nav>{planView === 'overview' ? <PlanConsole api={api} devices={devices} datasets={datasets} plans={plans} selectedPlanId={selectedPlanId} onSelect={setSelectedPlanId} onPlansChanged={reloadPlans} onRunStarted={onRunStarted}/> : <RunConsole api={api} runs={selectedPlanRuns} selectedRun={selectedRun} onSelect={setSelectedRunId} onRunUpdated={updateRun}/>}</> : page === 'settings' ? <JudgeSettings api={api} onConfigured={setJudgeConfigured}/> : <section className="dataset-workspace"><article className="panel"><div className="section-head"><div><h2>评测集管理</h2><p>维护样本、断言与 AI 评审标准，不在此发起执行</p></div></div><label>当前评测集<select value={selectedDatasetId} onChange={(event) => setSelectedDatasetId(event.target.value)}>{datasets.map((dataset) => <option key={dataset.id} value={dataset.id}>{dataset.name}</option>)}</select></label><DatasetManager datasets={datasets} selectedId={selectedDatasetId} onChanged={reloadDatasets}/>{selectedDataset && <div className="dataset-overview"><strong>{selectedDataset.name}</strong><p>{selectedDataset.description}</p>{selectedDataset.samples.map((sample) => <div className="sample readonly" key={sample.id}><span><strong>{sample.name ?? sample.id}</strong><small>{sample.instruction}</small></span>{sample.judge?.enabled && <em>AI 评审</em>}</div>)}</div>}</article></section>}
         </div>
       </section>
     </div>

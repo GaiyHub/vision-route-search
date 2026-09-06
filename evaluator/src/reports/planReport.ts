@@ -46,6 +46,7 @@ export const planRunReportSchema = z.object({
     durationMs: z.number().int().nonnegative(),
     totalTokens: z.number().nonnegative().nullable(),
     cachedTokens: z.number().nonnegative().nullable(),
+    totalSteps: z.number().int().nonnegative().nullable().default(null),
   }).strict(),
   samples: z.array(reportSampleSchema),
 }).strict();
@@ -84,6 +85,7 @@ export class PlanReportStore {
     }));
     const count = (state: typeof samples[number]['state']) => samples.filter((sample) => sample.state === state).length;
     const tokenSamples = samples.map((sample) => sample.tokens).filter((tokens) => tokens !== null);
+    const metricSamples = samples.map((sample) => sample.metrics).filter((metrics) => metrics !== null);
     const report = planRunReportSchema.parse({
       schemaVersion: 1,
       planId: run.planId,
@@ -105,6 +107,9 @@ export class PlanReportStore {
         totalTokens: tokenSamples.length ? tokenSamples.reduce((sum, tokens) => sum + tokens.total, 0) : null,
         cachedTokens: tokenSamples.some((tokens) => tokens.cached !== null)
           ? tokenSamples.reduce((sum, tokens) => sum + (tokens.cached ?? 0), 0)
+          : null,
+        totalSteps: metricSamples.length
+          ? metricSamples.reduce((sum, metrics) => sum + metrics.stepCount, 0)
           : null,
       },
       samples,

@@ -68,4 +68,14 @@ describe('EvaluationPlan', () => {
     await writeFile(join(root, 'plans', 'broken.json'), '{');
     expect((await plans.list({ limit: 20 })).plans.map((plan) => plan.planId)).toEqual([valid.planId]);
   });
+
+  it('删除计划后不再返回该计划', async () => {
+    const { plans } = await fixture();
+    const plan = await plans.create(input);
+
+    await plans.delete(plan.planId);
+
+    await expect(plans.get(plan.planId)).rejects.toMatchObject({ code: 'PLAN_NOT_FOUND' });
+    expect((await plans.list({ limit: 20 })).plans).toEqual([]);
+  });
 });

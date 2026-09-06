@@ -9,6 +9,33 @@ export interface Device {
   reason?: string;
 }
 
+export interface MirrorDevice {
+  serial: string;
+  model: string;
+  androidVersion: string;
+  state: 'ONLINE' | 'OFFLINE' | 'UNAUTHORIZED' | 'UNKNOWN';
+  canMirror: boolean;
+  reason?: string;
+}
+
+export interface MirrorSession {
+  schemaVersion: 1;
+  sessionId: string;
+  subscriptionId: string;
+  deviceSerial: string;
+  state: 'STARTING' | 'STREAMING' | 'STOPPED' | 'ERROR';
+  transport: 'WEBRTC';
+  createdAt: string;
+  subscriberCount: number;
+  error?: string;
+}
+
+export interface MirrorPeerConnection {
+  schemaVersion: 1;
+  peerConnectionId: string;
+  answer: { type: 'answer'; sdp: string };
+}
+
 export interface EvaluationPlanSummary {
   schemaVersion: 1;
   planId: string;
@@ -77,6 +104,7 @@ export interface PlanRunReport {
     durationMs: number;
     totalTokens: number | null;
     cachedTokens: number | null;
+    totalSteps: number | null;
   };
 }
 

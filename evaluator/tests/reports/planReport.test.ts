@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -37,11 +37,20 @@ describe('PlanRun 报告', () => {
         ],
       }],
     });
+    const metricsDirectory = join(root, 'runs', 'run-1', 'samples', 'answer', 'attempts', 'attempt-22222222-2222-4222-8222-222222222222', 'normalized');
+    await mkdir(metricsDirectory, { recursive: true });
+    await writeFile(join(metricsDirectory, 'metrics.json'), JSON.stringify({
+      schemaVersion: 1, success: true, verdict: 'PASSED',
+      tokenUsage: { prompt: 20, completion: 4, total: 24, cached: 10 },
+      stepCount: 3, modelCallCount: 2, toolCallCount: 1,
+      cacheHitRate: 0.5, toolSuccessRate: 1,
+      toolCalls: { succeeded: 1, failed: 0, unknown: 0 },
+      durationMs: 2000, modelDurationMs: 1200, toolDurationMs: 500, unavailable: [],
+    }));
     const reports = new PlanReportStore(root);
     const report = await reports.generate(run);
-    expect(report.summary).toMatchObject({ total: 1, passed: 1, failed: 0, passRate: 1, durationMs: 2000, totalTokens: 24, cachedTokens: 10 });
+    expect(report.summary).toMatchObject({ total: 1, passed: 1, failed: 0, passRate: 1, durationMs: 2000, totalTokens: 24, cachedTokens: 10, totalSteps: 3 });
     expect(report.samples).toMatchObject([{ attemptNumber: 2, state: 'PASSED' }]);
     await expect(reports.get(run.runId)).resolves.toEqual(report);
   });
 });
-

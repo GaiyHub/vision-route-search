@@ -1,4 +1,7 @@
-import { mkdir, open, readFile } from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { access, mkdir, open, readFile, rename, unlink } from 'node:fs/promises';
+import { createInterface } from 'node:readline';
 import { dirname, join, relative } from 'node:path';
 import type { AdbClient } from '../adb/adbClient.js';
 import { InfrastructureError } from '../contracts/errors.js';
@@ -9,7 +12,7 @@ import {
   type EvalStatusV1,
 } from '../contracts/evaluation.js';
 import { writeJsonAtomic } from '../storage/atomicFile.js';
-import { normalizeEvaluationEvidence } from './normalizer.js';
+import { normalizeEvaluationEvidenceFile } from './normalizer.js';
 import { finalDeviceStateSchema } from './schema.js';
 
 export interface EvidenceManifest {
@@ -47,11 +50,11 @@ export class EvidenceCollector {
     const traceId = traceIdOf(storedStatus);
     if (traceId) {
       const otelName = `otel-${traceId}.jsonl`;
-      const otelRaw = await this.requireArtifact(serial, request, otelName);
-      validateOtel(otelRaw, request, traceId);
-      await writeImmutable(join(rawDirectory, otelName), otelRaw);
+      const otelPath = join(rawDirectory, otelName);
+      await this.pullOtelArtifact(serial, request, otelName, otelPath);
+      await validateOtelFile(otelPath, request, traceId);
       files.otel = `raw/${otelName}`;
-      const normalized = normalizeEvaluationEvidence(request, storedStatus, otelRaw);
+      const normalized = await normalizeEvaluationEvidenceFile(request, storedStatus, otelPath);
       await writeJsonAtomic(join(normalizedDirectory, 'trace.json'), normalized.trace);
       await writeJsonAtomic(join(normalizedDirectory, 'metrics.json'), normalized.metrics);
       files.trace = 'normalized/trace.json';
@@ -109,6 +112,23 @@ export class EvidenceCollector {
     return content;
   }
 
+  private async pullOtelArtifact(serial: string, request: EvalRequestV1, fileName: string, destinationPath: string): Promise<void> {
+    try {
+      await access(destinationPath);
+      return;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+    await mkdir(dirname(destinationPath), { recursive: true });
+    const temporaryPath = `${destinationPath}.tmp-${randomUUID()}`;
+    try {
+      await this.adb.pullEvaluationArtifact(serial, request, fileName, temporaryPath);
+      await rename(temporaryPath, destinationPath);
+    } finally {
+      await unlink(temporaryPath).catch(() => undefined);
+    }
+  }
+
   private assertRequestIdentity(expected: EvalRequestV1, actual: EvalRequestV1): void {
     if (JSON.stringify(actual) !== JSON.stringify(expected)) {
       throw new InfrastructureError('EVIDENCE_CORRELATION_INVALID', 'request.json 与提交请求不一致', false);
@@ -129,12 +149,19 @@ function traceIdOf(status: EvalStatusV1): string | undefined {
   return undefined;
 }
 
-function validateOtel(raw: string, request: EvalRequestV1, traceId: string): void {
-  const lines = raw.trim().split('\n').filter(Boolean);
-  if (lines.length === 0 || lines.length > 20_000) throw invalidEvidence('OTel 行数无效');
-  const records = lines.map((line) => JSON.parse(line) as Record<string, unknown>);
-  if (records.some((record) => record.traceId !== traceId)) throw invalidEvidence('OTel traceId 不一致');
-  const root = records.find((record) => record.parentSpanId === null && record.name === 'invoke_agent 豆泡');
+async function validateOtelFile(path: string, request: EvalRequestV1, traceId: string): Promise<void> {
+  const lines = createInterface({ input: createReadStream(path, { encoding: 'utf8' }), crlfDelay: Infinity });
+  let lineCount = 0;
+  let root: Record<string, unknown> | undefined;
+  for await (const line of lines) {
+    if (!line.trim()) continue;
+    lineCount += 1;
+    if (lineCount > 20_000) throw invalidEvidence('OTel 行数无效');
+    const record = JSON.parse(line) as Record<string, unknown>;
+    if (record.traceId !== traceId) throw invalidEvidence('OTel traceId 不一致');
+    if (record.parentSpanId === null && record.name === 'invoke_agent 豆泡') root = record;
+  }
+  if (lineCount === 0) throw invalidEvidence('OTel 行数无效');
   const attributes = root?.attributes as Record<string, unknown> | undefined;
   if (!root?.endTimeUnixNano
     || attributes?.['doupao.source'] !== 'EVALUATION'

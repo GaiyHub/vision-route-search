@@ -13,8 +13,16 @@ import { createEvaluationPlanSchema, planIdSchema } from '../plans/schema.js';
 import { PlanReportStoreError, type PlanReportStore } from '../reports/planReport.js';
 import { judgeConfigInputSchema } from '../judge/schema.js';
 import type { JudgeService } from '../judge/service.js';
+import { DeviceMirrorError, type DeviceMirrorService } from './deviceMirror.js';
+import {
+  createMirrorPeerConnectionRequestSchema,
+  createMirrorSessionRequestSchema,
+  mirrorSessionIdSchema,
+  mirrorSubscriptionIdSchema,
+} from '../mirror/schema.js';
+import { MirrorSessionError, type MirrorSessionService } from '../mirror/sessionManager.js';
 
-export function createApp(dependencies: { datasets: DatasetCatalog; runtime: EvaluationRuntime; runs: RunManager; details: SampleDetailsStore; plans: PlanRepository; reports: PlanReportStore; judge?: JudgeService }) {
+export function createApp(dependencies: { datasets: DatasetCatalog; runtime: EvaluationRuntime; runs: RunManager; details: SampleDetailsStore; plans: PlanRepository; reports: PlanReportStore; judge?: JudgeService; mirror?: DeviceMirrorService; mirrorSessions?: MirrorSessionService }) {
   const app = Fastify({ logger: false });
   const datasetParams = z.object({ datasetId: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/) });
   const runSampleParams = z.object({
@@ -40,9 +48,40 @@ export function createApp(dependencies: { datasets: DatasetCatalog; runtime: Eva
     cursor: z.string().min(1).optional(),
     limit: z.coerce.number().int().min(1).max(100).default(20),
   });
+  const mirrorDeviceParams = z.object({ serial: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/) });
+  const mirrorSessionParams = z.object({ sessionId: mirrorSessionIdSchema });
+  const mirrorSubscriptionParams = mirrorSessionParams.extend({ subscriptionId: mirrorSubscriptionIdSchema });
 
   app.get('/api/health', async () => ({ status: 'ok', runtime: dependencies.runtime.source.toLowerCase() }));
   app.get('/api/devices', async () => ({ devices: await dependencies.runtime.listDevices() }));
+  app.get('/api/android/devices', async () => ({ devices: await dependencies.mirror?.listDevices() ?? [] }));
+  app.get<{ Params: { serial: string } }>('/api/android/devices/:serial/frame', async (request, reply) => {
+    if (!dependencies.mirror) throw new DeviceMirrorError('DEVICE_NOT_MIRRORABLE', '当前运行环境未启用真机镜像');
+    const { serial } = mirrorDeviceParams.parse(request.params);
+    const frame = await dependencies.mirror.captureFrame(serial);
+    return reply
+      .header('cache-control', 'no-store, no-cache, must-revalidate')
+      .header('pragma', 'no-cache')
+      .type('image/png')
+      .send(frame);
+  });
+  app.post('/api/android/mirror-sessions', async (request, reply) => {
+    if (!dependencies.mirrorSessions) throw new MirrorSessionError('CAPTURE_FAILED', '当前运行环境未启用实时视频流');
+    const input = createMirrorSessionRequestSchema.parse(request.body);
+    return reply.code(201).send(await dependencies.mirrorSessions.create(input.deviceSerial, input.clientId));
+  });
+  app.post<{ Params: { sessionId: string } }>('/api/android/mirror-sessions/:sessionId/peer-connections', async (request, reply) => {
+    if (!dependencies.mirrorSessions) throw new MirrorSessionError('CAPTURE_FAILED', '当前运行环境未启用实时视频流');
+    const { sessionId } = mirrorSessionParams.parse(request.params);
+    const input = createMirrorPeerConnectionRequestSchema.parse(request.body);
+    return reply.code(201).send(await dependencies.mirrorSessions.createPeerConnection(sessionId, input));
+  });
+  app.delete<{ Params: { sessionId: string; subscriptionId: string } }>('/api/android/mirror-sessions/:sessionId/subscriptions/:subscriptionId', async (request, reply) => {
+    if (!dependencies.mirrorSessions) return reply.code(204).send();
+    const { sessionId, subscriptionId } = mirrorSubscriptionParams.parse(request.params);
+    await dependencies.mirrorSessions.release(sessionId, subscriptionId);
+    return reply.code(204).send();
+  });
   app.get('/api/judge/config', async () => dependencies.judge?.publicConfig() ?? ({ configured: false, provider: 'OPENAI_COMPATIBLE', hasApiKey: false }));
   app.put('/api/judge/config', async (request) => {
     if (!dependencies.judge) throw new Error('Judge 服务未启用');
@@ -89,6 +128,11 @@ export function createApp(dependencies: { datasets: DatasetCatalog; runtime: Eva
   app.put<{ Params: { planId: string } }>('/api/plans/:planId', async (request) => {
     const { planId } = planParams.parse(request.params);
     return dependencies.plans.update(planId, createEvaluationPlanSchema.parse(request.body));
+  });
+  app.delete<{ Params: { planId: string } }>('/api/plans/:planId', async (request, reply) => {
+    const { planId } = planParams.parse(request.params);
+    await dependencies.plans.delete(planId);
+    return reply.code(204).send();
   });
   app.post<{ Params: { planId: string } }>('/api/plans/:planId/runs', async (request, reply) => {
     const { planId } = planParams.parse(request.params);
@@ -169,10 +213,16 @@ export function createApp(dependencies: { datasets: DatasetCatalog; runtime: Eva
     const runConflict = error instanceof RunManagerError;
     const plan = error instanceof PlanRepositoryError;
     const report = error instanceof PlanReportStoreError;
+    const mirror = error instanceof DeviceMirrorError;
+    const mirrorSession = error instanceof MirrorSessionError;
     const message = error instanceof Error ? error.message : '未知服务端错误';
     const status = validation || plan && error.code === 'INVALID_CURSOR'
       ? 400
-      : runConflict || catalog && error.code === 'DATASET_CONFLICT'
+      : mirrorSession && error.code === 'CAPTURE_FAILED'
+        ? 503
+        : mirrorSession && error.code === 'NEGOTIATION_FAILED'
+          ? 502
+      : runConflict || mirror && error.code === 'DEVICE_NOT_MIRRORABLE' || catalog && error.code === 'DATASET_CONFLICT'
         ? 409
         : 404;
     void reply.code(status).send({
@@ -180,11 +230,12 @@ export function createApp(dependencies: { datasets: DatasetCatalog; runtime: Eva
       error: {
         code: validation || plan && error.code === 'INVALID_CURSOR'
           ? 'INVALID_REQUEST'
-          : runConflict || catalog || plan || report ? error.code : 'RESOURCE_NOT_FOUND',
+          : runConflict || catalog || plan || report || mirror || mirrorSession ? error.code : 'RESOURCE_NOT_FOUND',
         message,
         retryable: false,
       },
     });
   });
+  app.addHook('onClose', async () => dependencies.mirrorSessions?.close());
   return app;
 }

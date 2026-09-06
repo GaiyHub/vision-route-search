@@ -160,6 +160,10 @@ doupao/
 ├── react-native-accessibility-controller/
 │   ├── src/                           # React Native API 与轮询工具
 │   └── android/                       # AccessibilityService、手势、截图与悬浮窗
+├── evaluator/                           # PC 端批量评测 WebUI、ADB 调度与评测报告
+│   ├── datasets/                     # YAML / JSON 评测集
+│   ├── src/client/                   # 评测计划、评测集、Judge 与执行记录界面
+│   └── src/server/                   # 本地 API、设备调度与产物归档
 ├── openspec/                          # Proposal、Design、Spec 与任务记录
 └── OpenMinis/                         # 架构调研与对照源码
 ```
@@ -179,31 +183,33 @@ doupao/
 - AsyncStorage + 轻量发布订阅 Store
 - Jest、ts-jest、TypeScript strict 检查
 
-## 本地开发
+## App 安装与首次配置
 
-### 环境要求
+### 运行要求
+
+- Android 8.0（API 26）及以上的 ARM64 真机；
+- 普通使用可在手机上直接安装 APK；
+- 如需使用 PC 评测台，还需开启「开发者选项 → USB 调试」，并使用 USB 连接电脑。
+
+### 从源码构建 APK
+
+构建环境：
 
 - Node.js 18+
 - JDK 17
 - Android SDK / Build Tools
-- Android 8.0（API 26）及以上真机
 - 与主工程同级的本地依赖：
   - `react-native-accessibility-controller`
   - `react-native-executorch`
 
-### 安装依赖与校验
+在仓库根目录执行：
 
 ```bash
 cd guidedog-agent
 npm install
 npm run typecheck
 npm test -- --runInBand --forceExit
-```
-
-### 构建 Release APK
-
-```bash
-cd guidedog-agent/android
+cd android
 NODE_ENV=production ./gradlew :app:assembleRelease
 ```
 
@@ -213,22 +219,110 @@ NODE_ENV=production ./gradlew :app:assembleRelease
 guidedog-agent/android/app/build/outputs/apk/release/app-release.apk
 ```
 
-开发阶段覆盖安装：
+### 安装到手机
+
+可将 APK 传到手机后直接安装，也可在仓库根目录通过 ADB 安装：
 
 ```bash
-adb install -r app/build/outputs/apk/release/app-release.apk
+adb devices
+adb install -r guidedog-agent/android/app/build/outputs/apk/release/app-release.apk
 ```
 
-Debug 构建依赖 Metro，独立装机请使用 Release APK。
+当 `adb devices` 在设备序列号后显示 `device` 时才表示连接就绪；如显示 `unauthorized`，请在手机上确认 USB 调试授权。Debug 构建依赖 Metro，独立装机和真机评测请使用 Release APK。
 
-## 首次运行
+### 首次运行
 
-1. 安装并打开豆泡；
-2. 按引导开启无障碍服务和悬浮窗权限；
-3. 配置云端模型，或下载并加载端侧 Gemma 模型；
-4. 首次使用截图时，根据系统提示授权屏幕捕获；
-5. 使用语音或定位能力时授予相应权限；
-6. 在 MIUI/HyperOS 等系统上，建议关闭豆泡的电池优化限制。
+1. 安装并打开豆泡，按引导开启无障碍服务和悬浮窗权限。
+2. 在「设置 → 模型配置」中选择 Provider，填写模型、API 地址和 API Key，然后点击「测试连接」；也可在引导页下载并加载端侧 Gemma 模型。
+3. 首次使用截图时，根据系统提示授权屏幕捕获；使用语音、定位或通知能力时，再授予对应系统权限。
+4. 先在对话页执行一条简单指令，确认模型可用；如要操作其他 App，再测试无障碍读取、悬浮窗和截图是否正常。
+5. 在 MIUI/HyperOS 等系统上，建议允许后台运行并关闭豆泡的电池优化限制。
+
+## 评测平台使用指南
+
+`evaluator` 是运行在 PC 上的本地 WebUI。它通过 ADB 向普通豆泡 APK 发送隔离的评测请求，收集执行状态、标准化轨迹、断言、截图和 LLM-as-Judge 结果。评测不需要安装额外的手机端 App。
+
+### 1. 准备环境与设备
+
+- Node.js 20+；
+- 已安装 `adb` 并可在终端直接调用；
+- 已安装当前版本豆泡 APK，且 App 内的模型和必要权限已配置；
+- 评测过程中保持手机解锁和 USB 连接稳定；
+- 可选：安装 `scrcpy` 和 `ffmpeg` 以在 WebUI 中查看实时真机画面。
+
+macOS 可使用 Homebrew 安装所需工具：
+
+```bash
+brew install android-platform-tools scrcpy ffmpeg
+adb devices
+```
+
+### 2. 启动评测台
+
+```bash
+cd evaluator
+npm install
+npm run dev
+```
+
+启动后访问：
+
+- WebUI：`http://127.0.0.1:5173`
+- 本地 API：`http://127.0.0.1:4174`
+
+如果暂时没有 Android 真机，可使用 Mock 运行时熟悉界面：
+
+```bash
+DOUPAO_EVALUATOR_RUNTIME=mock npm run dev
+```
+
+WebUI 顶部显示「ADB 真机」且计划中的目标设备状态为 `READY` 时，才可发起真机评测。顶部手机图标可打开真机画面；未安装 `scrcpy` 或 `ffmpeg` 时会降级为按需截图。
+
+### 3. 准备评测集
+
+进入左侧「评测集」：
+
+1. 可直接选择内置的「豆泡冒烟评测」，或点击「新建」创建评测集。
+2. 为每个样本填写唯一 ID、输入指令和超时时间。
+3. 至少配置一条确定性断言，或启用 LLM-as-Judge；断言在界面中以 JSON 数组编辑。
+4. 保存后，评测集会写入 `evaluator/datasets/`，也可直接维护该目录下的 YAML / JSON 文件。
+
+最小样本可参考 `evaluator/datasets/smoke.yaml`。断言支持结果状态、最终回答、工具调用与结果、耗时、步数、Token、前台包名、UI 文本和高风险交互阻断等类型。
+
+### 4. 配置 Judge（可选）
+
+只使用确定性断言时可跳过此步。如果样本启用了 Judge：
+
+1. 进入左侧「Judge」；
+2. 填写 OpenAI-compatible Base URL、模型和 API Key；
+3. 根据模型能力选择是否支持图片，点击「保存并测试连接」。
+
+Judge API Key 只保存在后端进程内存中，不会写入浏览器存储、轨迹或报告；后端重启后需重新配置。
+
+### 5. 创建并执行评测计划
+
+1. 进入「评测计划」，点击「新建计划」。
+2. 绑定评测集和目标设备，勾选要执行的样本，并设置默认超时、失败后是否继续以及是否启用 Judge。
+3. 保存计划，确认设备为 `READY`，然后点击「执行评测计划」。
+4. 执行期间不要手动操作设备；如任务命中风险确认或需要用户交互，按手机端提示处理。
+
+### 6. 查看结果与重试
+
+计划启动后会自动进入「执行记录」。页面会展示整体通过率、成功/失败/异常数、总耗时和 Token；展开样本可查看各次 Attempt 及其标准化轨迹、断言和 Judge 结果。运行结束后可对单个样本点击「新增一次尝试」，报告始终以每个样本的最新 Attempt 计算。
+
+默认数据目录为 `evaluator/.data`，可通过 `DOUPAO_EVALUATOR_DATA_DIR` 修改。该目录会保存评测计划、执行批次、样本 Attempt、评测证据和报告。
+
+### 常见问题
+
+| 现象 | 处理方式 |
+| --- | --- |
+| 设备显示 `UNAUTHORIZED` | 解锁手机并确认 USB 调试授权，然后重新连接 USB。 |
+| 设备显示「未安装豆泡」 | 安装包名为 `com.watchdog.agent` 的当前 APK。 |
+| 设备显示「豆泡评测接口不可用」 | 重新构建并覆盖安装当前 Release APK，确认 APK 包含评测 API v1。 |
+| 计划提示「请先配置 Judge」 | 在 Judge 页完成连接测试，或在计划中关闭 Judge。 |
+| 无法打开实时画面 | 确认 `scrcpy` 和 `ffmpeg` 可在终端直接执行；评测本身仍可继续，界面会降级为截图。 |
+
+更多评测台环境变量和 Judge 配置方式见 [`evaluator/README.md`](evaluator/README.md)。
 
 ## 当前边界
 

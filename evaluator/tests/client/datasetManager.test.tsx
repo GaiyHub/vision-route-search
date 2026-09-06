@@ -49,4 +49,19 @@ describe('评测集管理器', () => {
     expect(await screen.findByText('样本 1 的断言不是合法 JSON')).toBeTruthy();
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it('删除评测集时不为无请求体的 DELETE 设置 JSON Content-Type', async () => {
+    const fetchMock = vi.fn(async () => new Response(null, { status: 204 }));
+    vi.stubGlobal('fetch', fetchMock);
+    vi.stubGlobal('confirm', vi.fn(() => true));
+    render(<DatasetManager datasets={[dataset]} selectedId="smoke" onChanged={vi.fn()}/>);
+
+    fireEvent.click(screen.getByRole('button', { name: '删除' }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    const init = fetchMock.mock.calls[0]?.[1];
+    expect(init).toMatchObject({ method: 'DELETE' });
+    expect(init?.body).toBeUndefined();
+    expect(new Headers(init?.headers).has('content-type')).toBe(false);
+  });
 });

@@ -1,3 +1,5 @@
+import { createReadStream } from 'node:fs';
+import { createInterface } from 'node:readline';
 import type { EvalRequestV1, EvalStatusV1 } from '../contracts/evaluation.js';
 import {
   sampleMetricsSchema,
@@ -36,6 +38,27 @@ export function normalizeEvaluationEvidence(
 ): { trace: TraceDocument; metrics: SampleMetrics } {
   const records = otelRaw.trim().split('\n').filter(Boolean)
     .map((line) => JSON.parse(line) as OtelRecord);
+  return normalizeRecords(request, status, records);
+}
+
+export async function normalizeEvaluationEvidenceFile(
+  request: EvalRequestV1,
+  status: EvalStatusV1,
+  path: string,
+): Promise<{ trace: TraceDocument; metrics: SampleMetrics }> {
+  const records: OtelRecord[] = [];
+  const lines = createInterface({ input: createReadStream(path, { encoding: 'utf8' }), crlfDelay: Infinity });
+  for await (const line of lines) {
+    if (line.trim()) records.push(JSON.parse(line) as OtelRecord);
+  }
+  return normalizeRecords(request, status, records);
+}
+
+function normalizeRecords(
+  request: EvalRequestV1,
+  status: EvalStatusV1,
+  records: OtelRecord[],
+): { trace: TraceDocument; metrics: SampleMetrics } {
   const traceId = traceIdOf(status) ?? records[0]?.traceId ?? 'unknown';
   const root = records.find((record) => record.parentSpanId === null);
   const firstNano = records.map((record) => record.startTimeUnixNano).filter(isString).sort(compareNano)[0];

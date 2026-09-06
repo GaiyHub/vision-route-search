@@ -14,6 +14,18 @@ npm run dev
 - `DOUPAO_EVALUATOR_RUNTIME=mock npm run dev` 可使用 Mock 设备。
 - `DOUPAO_EVALUATOR_DATA_DIR` 可修改评测数据目录，默认使用 `evaluator/.data`。
 
+## 查看手机实时画面
+
+页面顶部手机图标可打开可拖拽的真机画面悬浮窗。该能力通过 ADB 临时运行 `scrcpy-server`，将 H.264 码流无转码封装为 RTP，并通过 WebRTC 交给浏览器播放；不安装额外 APK，也不修改豆泡应用数据。WebRTC 不可用时自动降级为按需截图。
+
+宿主机需安装并可直接执行 `adb`、`scrcpy` 和 `ffmpeg`。macOS 可执行：
+
+```bash
+brew install android-platform-tools scrcpy ffmpeg
+```
+
+可通过 `ADB_PATH`、`SCRCPY_PATH`、`SCRCPY_SERVER_PATH` 和 `FFMPEG_PATH` 指定非默认安装位置。同一设备只启动一条底层采集流，多个页面订阅复用；最后一个订阅释放 5 秒后停止进程并清理临时文件与端口转发。
+
 ## LLM-as-Judge
 
 可在 WebUI 的 `Judge` 页面配置 OpenAI-compatible Provider 并测试连接。API Key 只保存在后端进程内存，不写入浏览器存储、运行数据、轨迹或报告；后端重启后需重新输入。也可通过环境变量启动：

@@ -64,9 +64,6 @@ export class RunManager {
     if (selected.some((sample) => !sample?.enabled)) {
       throw new RunManagerError('PLAN_STALE', '计划中的样本已不存在或被禁用，请更新计划后重试');
     }
-    if (plan.judge.enabled && selected.some((sample) => sample?.judge?.enabled) && !this.judge?.publicConfig().configured) {
-      throw new RunManagerError('JUDGE_NOT_READY', '计划启用了 LLM-as-Judge，请先完成 Judge 配置');
-    }
     return this.createRun(
       dataset,
       selected as EvaluationSample[],
@@ -222,7 +219,7 @@ export class RunManager {
         }, controller.signal);
         applyResult(target, result);
         await this.applyAssertions(run, definition, sample, target, result);
-        if (run.planSnapshot?.plan.judge.enabled && definition.judge?.enabled) {
+        if (run.planSnapshot?.plan.judge.enabled && definition.judge?.enabled && this.judge?.publicConfig().configured) {
           target.phase = 'JUDGE';
           await this.applyJudge(run, definition, sample, target, result);
         }
